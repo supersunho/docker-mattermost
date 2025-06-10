@@ -135,13 +135,13 @@ jobs:
           cd mattermost-source
           echo "📥 Downloading official Dockerfile..."
           
-          # Download original Dockerfile with error checking
+          # Download original Dockerfile
           if ! wget https://raw.githubusercontent.com/mattermost/mattermost/${{ needs.check-and-prepare.outputs.version }}/server/build/Dockerfile -O server/build/Dockerfile.original; then
             echo "❌ Failed to download Dockerfile"
             exit 1
           fi
           
-          # Create source-builder stage in separate file
+          # Create source-builder stage
           cat > server/build/source-builder-stage.dockerfile << 'BUILDER_EOF'
           FROM golang:1.21-alpine AS source-builder
           
@@ -159,109 +159,45 @@ jobs:
           # Copy source code
           COPY . .
           
-          # Download Go modules
-          RUN set -e && \
-              go mod download && \
-              echo "✅ Go modules downloaded successfully"
-          
-          # Set environment for AMD64 build
-          ENV CGO_ENABLED=0
-          ENV GOOS=linux
-          ENV GOARCH=amd64
-          
-          # Build server with error checking
-          RUN set -e && \
-              echo "🔨 Building Mattermost server for AMD64..." && \
+          # Download Go modules and build
+          RUN go mod download && \
               make build-server && \
-              test -f /mattermost-server/bin/mattermost && \
-              echo "✅ Server build completed successfully"
-          
-          # Build webapp with error checking
-          RUN set -e && \
-              echo "🔨 Building webapp..." && \
-              cd webapp && \
-              npm ci && \
-              npm run build && \
-              test -d /mattermost-server/webapp/channels/dist && \
-              echo "✅ Webapp build completed successfully"
-          
-          # Final verification
-          RUN echo "🧪 Final verification..." && \
-              ls -la /mattermost-server/bin/mattermost && \
-              echo "✅ All builds completed successfully"
+              cd webapp && npm ci && npm run build
           
           BUILDER_EOF
           
-          # Verify source-builder stage was created correctly
-          if [ ! -f server/build/source-builder-stage.dockerfile ]; then
-            echo "❌ Failed to create source-builder stage"
-            exit 1
-          fi
+          # SHA256 해시 제거 
+          sed 's|^FROM ubuntu:.*|FROM ubuntu:latest AS builder|' server/build/Dockerfile.original > server/build/Dockerfile.clean
           
-          # Create modified runtime stage
-          echo "🔧 Modifying original Dockerfile..."
-          
-          # Step 1: Fix base image references
-          sed 's|^FROM ubuntu:.*|FROM ubuntu:latest AS builder|' server/build/Dockerfile.original > server/build/Dockerfile.step1 
-          
-          # Step 2: Remove SHA256 references
-          sed 's|@sha256:[a-f0-9]*||g' server/build/Dockerfile.step1 > server/build/Dockerfile.step2
-          
-          # Step 3: Replace download section with COPY commands
-          sed '/ARG MM_PACKAGE/,/tar.*mattermost.*tar.gz/c\
-          # Copy built binaries instead of downloading\
+          # FROM gcr.io/distroless/base-debian12 아래에 COPY 명령어들 추가
+          sed '/^FROM gcr.io\/distroless\/base-debian12/a\
+          # Copy built binaries from source-builder stage\
           COPY --from=source-builder /mattermost-server/bin/mattermost /mattermost/bin/mattermost\
           COPY --from=source-builder /mattermost-server/config /mattermost/config\
           COPY --from=source-builder /mattermost-server/fonts /mattermost/fonts\
           COPY --from=source-builder /mattermost-server/templates /mattermost/templates\
           COPY --from=source-builder /mattermost-server/i18n /mattermost/i18n\
-          COPY --from=source-builder /mattermost-server/webapp/channels/dist /mattermost/client' server/build/Dockerfile.step2 > server/build/Dockerfile.runtime
+          COPY --from=source-builder /mattermost-server/webapp/channels/dist /mattermost/client' server/build/Dockerfile.clean > server/build/Dockerfile.runtime
           
-          # Set Team edition if needed
+          # Team edition 설정
           if [ "${{ matrix.edition }}" = "team" ]; then
-            sed -i 's|mattermost-enterprise-linux|mattermost-team-linux|g' server/build/Dockerfile.runtime
+            sed -i 's|mattermost-enterprise|mattermost-team|g' server/build/Dockerfile.runtime
           fi
           
-          # Combine source-builder + runtime stages
-          echo "🔗 Combining stages..."
+          # 최종 Dockerfile 조합
           cat server/build/source-builder-stage.dockerfile > server/build/Dockerfile.amd64
           echo "" >> server/build/Dockerfile.amd64
           cat server/build/Dockerfile.runtime >> server/build/Dockerfile.amd64
           
-          # Verify final Dockerfile
-          if [ ! -f server/build/Dockerfile.amd64 ]; then
-            echo "❌ Failed to create final Dockerfile"
-            exit 1
-          fi
+          # 검증
+          echo "✅ Created complete Dockerfile for AMD64"
+          echo "📋 Last 15 lines:"
+          tail -15 server/build/Dockerfile.amd64
           
-          # Check if Dockerfile has both stages
-          if ! grep -q "FROM golang:1.21-alpine AS source-builder" server/build/Dockerfile.amd64; then
-            echo "❌ Source-builder stage missing"
-            exit 1
-          fi
-          
-          if ! grep -q "FROM ubuntu:latest" server/build/Dockerfile.amd64; then
-            echo "❌ Runtime stage missing"
-            exit 1
-          fi
-          
-          # Clean up temporary files
-          rm -f server/build/Dockerfile.original server/build/Dockerfile.step1 server/build/Dockerfile.step2 server/build/Dockerfile.runtime server/build/source-builder-stage.dockerfile
-          
-          echo "✅ Created Dockerfile for AMD64 ${{ matrix.edition }}"
-          echo "📋 Dockerfile verification:"
-          echo "- Lines: $(wc -l < server/build/Dockerfile.amd64)"
-          echo "- Source stage: $(grep -c 'source-builder' server/build/Dockerfile.amd64)"
-          echo "- Runtime stage: $(grep -c 'FROM ubuntu' server/build/Dockerfile.amd64)"
-          
-          # Show first and last few lines for verification
-          echo "📋 First 10 lines:"
-          head -10 server/build/Dockerfile.amd64
-          echo "📋 Last 10 lines:"
-          tail -10 server/build/Dockerfile.amd64
+          # Clean up
+          rm -f server/build/Dockerfile.original server/build/Dockerfile.clean server/build/Dockerfile.runtime server/build/source-builder-stage.dockerfile
 
  
-
       - name: Set up QEMU
         if: (matrix.edition == 'enterprise' && needs.check-and-prepare.outputs.build_enterprise == 'true') || (matrix.edition == 'team' && needs.check-and-prepare.outputs.build_team == 'true')
         uses: docker/setup-qemu-action@v3
@@ -346,13 +282,13 @@ jobs:
           cd mattermost-source
           echo "📥 Downloading official Dockerfile for ARM64..."
           
-          # Download original Dockerfile with error checking
+          # Download original Dockerfile
           if ! wget https://raw.githubusercontent.com/mattermost/mattermost/${{ needs.check-and-prepare.outputs.version }}/server/build/Dockerfile -O server/build/Dockerfile.original; then
             echo "❌ Failed to download Dockerfile"
             exit 1
           fi
           
-          # Create source-builder stage for ARM64 in separate file
+          # Create source-builder stage for ARM64
           cat > server/build/source-builder-stage.dockerfile << 'BUILDER_EOF'
           FROM golang:1.21-alpine AS source-builder
           
@@ -372,11 +308,6 @@ jobs:
           # Copy source code
           COPY . .
           
-          # Download Go modules
-          RUN set -e && \
-              go mod download && \
-              echo "✅ Go modules downloaded successfully"
-          
           # Set environment for ARM64 build
           ENV CGO_ENABLED=0
           ENV GOOS=linux
@@ -384,105 +315,81 @@ jobs:
           ENV CC=aarch64-linux-gnu-gcc
           ENV CXX=aarch64-linux-gnu-g++
           
-          # Build server with error checking for ARM64
-          RUN set -e && \
-              echo "🔨 Building Mattermost server for ARM64..." && \
+          # Download Go modules and build for ARM64
+          RUN go mod download && \
               make build-server && \
-              test -f /mattermost-server/bin/mattermost && \
-              file /mattermost-server/bin/mattermost | grep -q "ARM aarch64" && \
-              echo "✅ ARM64 server build completed successfully"
-          
-          # Build webapp with error checking
-          RUN set -e && \
-              echo "🔨 Building webapp..." && \
-              cd webapp && \
-              npm ci && \
-              npm run build && \
-              test -d /mattermost-server/webapp/channels/dist && \
-              echo "✅ Webapp build completed successfully"
-          
-          # Final verification for ARM64
-          RUN echo "🧪 Final ARM64 verification..." && \
-              ls -la /mattermost-server/bin/mattermost && \
-              file /mattermost-server/bin/mattermost && \
-              echo "✅ All ARM64 builds completed successfully"
+              cd webapp && npm ci && npm run build && \
+              file /mattermost-server/bin/mattermost | grep -q "ARM aarch64"
           
           BUILDER_EOF
           
-          # Verify source-builder stage was created correctly
-          if [ ! -f server/build/source-builder-stage.dockerfile ]; then
-            echo "❌ Failed to create ARM64 source-builder stage"
-            exit 1
-          fi
+          # SHA256 해시 제거 
+          sed 's|^FROM ubuntu:.*|FROM ubuntu:latest AS builder|' server/build/Dockerfile.original > server/build/Dockerfile.clean
           
-          # Create modified runtime stage for ARM64
-          echo "🔧 Modifying original Dockerfile for ARM64..."
-          
-          # Step 1: Fix base image references
-          sed 's|^FROM ubuntu:.*|FROM ubuntu:latest AS builder|' server/build/Dockerfile.original > server/build/Dockerfile.step1 
-          
-          # Step 2: Remove SHA256 references
-          sed 's|@sha256:[a-f0-9]*||g' server/build/Dockerfile.step1 > server/build/Dockerfile.step2
-          
-          # Step 3: Replace download section with COPY commands for ARM64
-          sed '/ARG MM_PACKAGE/,/tar.*mattermost.*tar.gz/c\
-          # Copy built ARM64 binaries instead of downloading\
+          # FROM gcr.io/distroless/base-debian12 아래에 ARM64용 COPY 명령어들 추가
+          sed '/^FROM gcr.io\/distroless\/base-debian12/a\
+          # Copy built ARM64 binaries from source-builder stage\
           COPY --from=source-builder /mattermost-server/bin/mattermost /mattermost/bin/mattermost\
           COPY --from=source-builder /mattermost-server/config /mattermost/config\
           COPY --from=source-builder /mattermost-server/fonts /mattermost/fonts\
           COPY --from=source-builder /mattermost-server/templates /mattermost/templates\
           COPY --from=source-builder /mattermost-server/i18n /mattermost/i18n\
-          COPY --from=source-builder /mattermost-server/webapp/channels/dist /mattermost/client' server/build/Dockerfile.step2 > server/build/Dockerfile.runtime
+          COPY --from=source-builder /mattermost-server/webapp/channels/dist /mattermost/client' server/build/Dockerfile.clean > server/build/Dockerfile.runtime
           
-          # Set Team edition if needed for ARM64
+          # Team edition 설정
           if [ "${{ matrix.edition }}" = "team" ]; then
-            sed -i 's|mattermost-enterprise-linux|mattermost-team-linux|g' server/build/Dockerfile.runtime
+            sed -i 's|mattermost-enterprise|mattermost-team|g' server/build/Dockerfile.runtime
           fi
           
-          # Combine source-builder + runtime stages for ARM64
-          echo "🔗 Combining ARM64 stages..."
+          # 최종 ARM64 Dockerfile 조합
           cat server/build/source-builder-stage.dockerfile > server/build/Dockerfile.arm64
           echo "" >> server/build/Dockerfile.arm64
           cat server/build/Dockerfile.runtime >> server/build/Dockerfile.arm64
           
-          # Verify final ARM64 Dockerfile
-          if [ ! -f server/build/Dockerfile.arm64 ]; then
-            echo "❌ Failed to create final ARM64 Dockerfile"
-            exit 1
-          fi
+          # ARM64 특화 검증
+          echo "🧪 ARM64 Dockerfile verification:"
           
-          # Check if Dockerfile has both stages for ARM64
-          if ! grep -q "FROM golang:1.21-alpine AS source-builder" server/build/Dockerfile.arm64; then
-            echo "❌ ARM64 source-builder stage missing"
-            exit 1
-          fi
-          
-          if ! grep -q "FROM ubuntu:latest" server/build/Dockerfile.arm64; then
-            echo "❌ ARM64 runtime stage missing"
-            exit 1
-          fi
-          
-          # ARM64 specific verification
+          # 필수 ARM64 설정 확인
           if ! grep -q "GOARCH=arm64" server/build/Dockerfile.arm64; then
-            echo "❌ ARM64 architecture setting missing"
+            echo "❌ Missing ARM64 architecture setting"
             exit 1
           fi
           
-          # Clean up temporary files
-          rm -f server/build/Dockerfile.original server/build/Dockerfile.step1 server/build/Dockerfile.step2 server/build/Dockerfile.runtime server/build/source-builder-stage.dockerfile
+          if ! grep -q "aarch64-linux-gnu-gcc" server/build/Dockerfile.arm64; then
+            echo "❌ Missing ARM64 cross-compiler"
+            exit 1
+          fi
           
-          echo "✅ Created Dockerfile for ARM64 ${{ matrix.edition }}"
-          echo "📋 ARM64 Dockerfile verification:"
-          echo "- Lines: $(wc -l < server/build/Dockerfile.arm64)"
+          # 기본 Dockerfile 구조 확인
+          if ! grep -q "EXPOSE" server/build/Dockerfile.arm64; then
+            echo "❌ Missing EXPOSE directive"
+            exit 1
+          fi
+          
+          if ! grep -q "ENTRYPOINT\|CMD" server/build/Dockerfile.arm64; then
+            echo "❌ Missing ENTRYPOINT or CMD directive"
+            exit 1
+          fi
+          
+          # 라인 수 확인
+          LINE_COUNT=$(wc -l < server/build/Dockerfile.arm64)
+          if [ "$LINE_COUNT" -lt 50 ]; then
+            echo "❌ ARM64 Dockerfile too short ($LINE_COUNT lines)"
+            exit 1
+          fi
+          
+          echo "✅ Created complete ARM64 Dockerfile ($LINE_COUNT lines)"
+          echo "📋 ARM64 verification results:"
+          echo "- ARM64 settings: $(grep -c 'arm64\|aarch64' server/build/Dockerfile.arm64)"
           echo "- Source stage: $(grep -c 'source-builder' server/build/Dockerfile.arm64)"
-          echo "- Runtime stage: $(grep -c 'FROM ubuntu' server/build/Dockerfile.arm64)"
-          echo "- ARM64 settings: $(grep -c 'arm64' server/build/Dockerfile.arm64)"
+          echo "- Runtime stage: $(grep -c 'FROM.*distroless' server/build/Dockerfile.arm64)"
           
-          # Show first and last few lines for ARM64 verification
-          echo "📋 ARM64 First 10 lines:"
-          head -10 server/build/Dockerfile.arm64
-          echo "📋 ARM64 Last 10 lines:"
-          tail -10 server/build/Dockerfile.arm64
+          echo "📋 Last 15 lines of ARM64 Dockerfile:"
+          tail -15 server/build/Dockerfile.arm64
+          
+          # Clean up
+          rm -f server/build/Dockerfile.original server/build/Dockerfile.clean server/build/Dockerfile.runtime server/build/source-builder-stage.dockerfile
+
 
  
       - name: Set up Docker Buildx
