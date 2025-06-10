@@ -187,8 +187,8 @@ jobs:
           # SHA256 해시 제거 
           sed 's|^FROM ubuntu:.*|FROM ubuntu:latest AS builder|' server/build/Dockerfile.original > server/build/Dockerfile.clean
           
-          # FROM gcr.io/distroless/base-debian12 아래에 COPY 명령어들 추가
-          sed '/^FROM gcr.io\/distroless\/base-debian12/a\
+          # "We should refrain from running as privileged user" 문장 아래에 COPY 명령어들 추가
+          sed '/# We should refrain from running as privileged user/a\
           # Copy built binaries from source-builder stage\
           COPY --from=source-builder /mattermost-server/bin/mattermost /mattermost/bin/mattermost\
           COPY --from=source-builder /mattermost-server/config /mattermost/config\
@@ -196,7 +196,6 @@ jobs:
           COPY --from=source-builder /mattermost-server/templates /mattermost/templates\
           COPY --from=source-builder /mattermost-server/i18n /mattermost/i18n\
           COPY --from=source-builder /mattermost-server/webapp/channels/dist /mattermost/client' server/build/Dockerfile.clean > server/build/Dockerfile.runtime
-          
           # Team edition 설정
           if [ "${{ matrix.edition }}" = "team" ]; then
             sed -i 's|mattermost-enterprise|mattermost-team|g' server/build/Dockerfile.runtime
@@ -352,17 +351,17 @@ jobs:
           
           # SHA256 해시 제거 
           sed 's|^FROM ubuntu:.*|FROM ubuntu:latest AS builder|' server/build/Dockerfile.original > server/build/Dockerfile.clean
-          
-          # FROM gcr.io/distroless/base-debian12 아래에 ARM64용 COPY 명령어들 추가
-          sed '/^FROM gcr.io\/distroless\/base-debian12/a\
-          # Copy built ARM64 binaries from source-builder stage\
+           
+          # "We should refrain from running as privileged user" 문장 아래에 COPY 명령어들 추가
+          sed '/# We should refrain from running as privileged user/a\
+          # Copy built binaries from source-builder stage\
           COPY --from=source-builder /mattermost-server/bin/mattermost /mattermost/bin/mattermost\
           COPY --from=source-builder /mattermost-server/config /mattermost/config\
           COPY --from=source-builder /mattermost-server/fonts /mattermost/fonts\
           COPY --from=source-builder /mattermost-server/templates /mattermost/templates\
           COPY --from=source-builder /mattermost-server/i18n /mattermost/i18n\
           COPY --from=source-builder /mattermost-server/webapp/channels/dist /mattermost/client' server/build/Dockerfile.clean > server/build/Dockerfile.runtime
-          
+         
           # Team edition 설정
           if [ "${{ matrix.edition }}" = "team" ]; then
             sed -i 's|mattermost-enterprise|mattermost-team|g' server/build/Dockerfile.runtime
@@ -412,7 +411,7 @@ jobs:
           echo "- Runtime stage: $(grep -c 'FROM.*distroless' server/build/Dockerfile.arm64)"
           
           echo "📋 Last 15 lines of ARM64 Dockerfile:"
-          tail -15 server/build/Dockerfile.arm64
+          tail -50 server/build/Dockerfile.arm64
           
           # Clean up
           rm -f server/build/Dockerfile.original server/build/Dockerfile.clean server/build/Dockerfile.runtime server/build/source-builder-stage.dockerfile
