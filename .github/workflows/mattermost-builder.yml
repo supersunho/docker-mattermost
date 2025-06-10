@@ -98,81 +98,24 @@ jobs:
             echo "build_team=true" >> $GITHUB_OUTPUT
           fi
 
-  build-enterprise:
+  # Native AMD64 build
+  build-amd64:
     needs: check-and-prepare
-    if: needs.check-and-prepare.outputs.build_enterprise == 'true'
+    if: needs.check-and-prepare.outputs.build_enterprise == 'true' || needs.check-and-prepare.outputs.build_team == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
+    strategy:
+      matrix:
+        edition: [enterprise, team]
     steps:
+      - name: Skip if not needed
+        if: (matrix.edition == 'enterprise' && needs.check-and-prepare.outputs.build_enterprise == 'false') || (matrix.edition == 'team' && needs.check-and-prepare.outputs.build_team == 'false')
+        run: echo "Skipping ${{ matrix.edition }} build"
+
       - name: Checkout Mattermost source
-        uses: actions/checkout@v4
-        with:
-          repository: mattermost/mattermost
-          ref: ${{ needs.check-and-prepare.outputs.version }}
-          path: mattermost-source
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-        with:
-          platforms: arm64,amd64
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract metadata for Enterprise
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=raw,value=${{ needs.check-and-prepare.outputs.version }}-enterprise
-            type=raw,value=${{ needs.check-and-prepare.outputs.version }}-enterprise-amd64
-            type=raw,value=${{ needs.check-and-prepare.outputs.version }}-enterprise-arm64
-            type=raw,value=latest-enterprise
-            type=raw,value=latest-enterprise-amd64
-            type=raw,value=latest-enterprise-arm64
-          labels: |
-            org.opencontainers.image.title=Mattermost Multi-Arch (Enterprise)
-            org.opencontainers.image.description=Mattermost Enterprise server with multi-architecture support (AMD64, ARM64)
-            org.opencontainers.image.version=${{ needs.check-and-prepare.outputs.version }}
-
-      - name: Build and push Enterprise edition
-        uses: docker/build-push-action@v5
-        with:
-          context: ./mattermost-source/server/build
-          file: ./mattermost-source/server/build/Dockerfile
-          platforms: linux/arm64,linux/amd64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=enterprise
-          cache-to: type=gha,mode=max,scope=enterprise
-
-      - name: Verify Enterprise image
-        run: |
-          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-and-prepare.outputs.version }}-enterprise"
-          echo "🔍 Verifying Enterprise multi-arch image..."
-          docker buildx imagetools inspect "$IMAGE"
-          echo "✅ Enterprise multi-arch build completed!"
-
-  build-team:
-    needs: check-and-prepare
-    if: needs.check-and-prepare.outputs.build_team == 'true'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - name: Checkout Mattermost source
+        if: (matrix.edition == 'enterprise' && needs.check-and-prepare.outputs.build_enterprise == 'true') || (matrix.edition == 'team' && needs.check-and-prepare.outputs.build_team == 'true')
         uses: actions/checkout@v4
         with:
           repository: mattermost/mattermost
@@ -180,6 +123,82 @@ jobs:
           path: mattermost-source
 
       - name: Prepare Team edition Dockerfile
+        if: matrix.edition == 'team' && needs.check-and-prepare.outputs.build_team == 'true'
+        run: |
+          cd mattermost-source
+          echo "🔧 Modifying Dockerfile for Team edition..."
+          sed -i 's|ARG MM_PACKAGE="https://latest.mattermost.com/mattermost-enterprise-linux"|ARG MM_PACKAGE="https://latest.mattermost.com/mattermost-team-linux"|g' server/build/Dockerfile
+          echo "📝 Modified MM_PACKAGE for Team edition"
+
+      - name: Set up Docker Buildx
+        if: (matrix.edition == 'enterprise' && needs.check-and-prepare.outputs.build_enterprise == 'true') || (matrix.edition == 'team' && needs.check-and-prepare.outputs.build_team == 'true')
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        if: (matrix.edition == 'enterprise' && needs.check-and-prepare.outputs.build_enterprise == 'true') || (matrix.edition == 'team' && needs.check-and-prepare.outputs.build_team == 'true')
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push AMD64 ${{ matrix.edition }}
+        if: (matrix.edition == 'enterprise' && needs.check-and-prepare.outputs.build_enterprise == 'true') || (matrix.edition == 'team' && needs.check-and-prepare.outputs.build_team == 'true')
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: ./mattermost-source/server/build
+          file: ./mattermost-source/server/build/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-and-prepare.outputs.version }}-${{ matrix.edition }}-amd64
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-${{ matrix.edition }}-amd64
+          cache-from: type=gha,scope=${{ matrix.edition }}-amd64
+          cache-to: type=gha,mode=max,scope=${{ matrix.edition }}-amd64
+
+      - name: Export digest
+        if: (matrix.edition == 'enterprise' && needs.check-and-prepare.outputs.build_enterprise == 'true') || (matrix.edition == 'team' && needs.check-and-prepare.outputs.build_team == 'true')
+        run: |
+          mkdir -p /tmp/digests/${{ matrix.edition }}
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${{ matrix.edition }}/${digest#sha256:}"
+
+      - name: Upload digest
+        if: (matrix.edition == 'enterprise' && needs.check-and-prepare.outputs.build_enterprise == 'true') || (matrix.edition == 'team' && needs.check-and-prepare.outputs.build_team == 'true')
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.edition }}-amd64
+          path: /tmp/digests/${{ matrix.edition }}/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # Native ARM64 build
+  build-arm64:
+    needs: check-and-prepare
+    if: needs.check-and-prepare.outputs.build_enterprise == 'true' || needs.check-and-prepare.outputs.build_team == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        edition: [enterprise, team]
+    steps:
+      - name: Skip if not needed
+        if: (matrix.edition == 'enterprise' && needs.check-and-prepare.outputs.build_enterprise == 'false') || (matrix.edition == 'team' && needs.check-and-prepare.outputs.build_team == 'false')
+        run: echo "Skipping ${{ matrix.edition }} build"
+
+      - name: Checkout Mattermost source
+        if: (matrix.edition == 'enterprise' && needs.check-and-prepare.outputs.build_enterprise == 'true') || (matrix.edition == 'team' && needs.check-and-prepare.outputs.build_team == 'true')
+        uses: actions/checkout@v4
+        with:
+          repository: mattermost/mattermost
+          ref: ${{ needs.check-and-prepare.outputs.version }}
+          path: mattermost-source
+
+      - name: Prepare Team edition Dockerfile
+        if: matrix.edition == 'team' && needs.check-and-prepare.outputs.build_team == 'true'
         run: |
           cd mattermost-source
           echo "🔧 Modifying Dockerfile for Team edition..."
@@ -187,59 +206,107 @@ jobs:
           echo "📝 Modified MM_PACKAGE for Team edition"
 
       - name: Set up QEMU
+        if: (matrix.edition == 'enterprise' && needs.check-and-prepare.outputs.build_enterprise == 'true') || (matrix.edition == 'team' && needs.check-and-prepare.outputs.build_team == 'true')
         uses: docker/setup-qemu-action@v3
         with:
-          platforms: arm64,amd64
+          platforms: arm64
 
       - name: Set up Docker Buildx
+        if: (matrix.edition == 'enterprise' && needs.check-and-prepare.outputs.build_enterprise == 'true') || (matrix.edition == 'team' && needs.check-and-prepare.outputs.build_team == 'true')
         uses: docker/setup-buildx-action@v3
 
       - name: Login to GitHub Container Registry
+        if: (matrix.edition == 'enterprise' && needs.check-and-prepare.outputs.build_enterprise == 'true') || (matrix.edition == 'team' && needs.check-and-prepare.outputs.build_team == 'true')
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata for Team
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=raw,value=${{ needs.check-and-prepare.outputs.version }}-team
-            type=raw,value=${{ needs.check-and-prepare.outputs.version }}-team-amd64
-            type=raw,value=${{ needs.check-and-prepare.outputs.version }}-team-arm64
-            type=raw,value=latest-team
-            type=raw,value=latest-team-amd64
-            type=raw,value=latest-team-arm64
-          labels: |
-            org.opencontainers.image.title=Mattermost Multi-Arch (Team)
-            org.opencontainers.image.description=Mattermost Team server with multi-architecture support (AMD64, ARM64)
-            org.opencontainers.image.version=${{ needs.check-and-prepare.outputs.version }}
-
-      - name: Build and push Team edition
+      - name: Build and push ARM64 ${{ matrix.edition }}
+        if: (matrix.edition == 'enterprise' && needs.check-and-prepare.outputs.build_enterprise == 'true') || (matrix.edition == 'team' && needs.check-and-prepare.outputs.build_team == 'true')
+        id: build
         uses: docker/build-push-action@v5
         with:
           context: ./mattermost-source/server/build
           file: ./mattermost-source/server/build/Dockerfile
-          platforms: linux/arm64,linux/amd64
+          platforms: linux/arm64
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=team
-          cache-to: type=gha,mode=max,scope=team
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-and-prepare.outputs.version }}-${{ matrix.edition }}-arm64
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-${{ matrix.edition }}-arm64
+          cache-from: type=gha,scope=${{ matrix.edition }}-arm64
+          cache-to: type=gha,mode=max,scope=${{ matrix.edition }}-arm64
 
-      - name: Verify Team image
+      - name: Export digest
+        if: (matrix.edition == 'enterprise' && needs.check-and-prepare.outputs.build_enterprise == 'true') || (matrix.edition == 'team' && needs.check-and-prepare.outputs.build_team == 'true')
         run: |
-          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-and-prepare.outputs.version }}-team"
-          echo "🔍 Verifying Team multi-arch image..."
-          docker buildx imagetools inspect "$IMAGE"
-          echo "✅ Team multi-arch build completed!"
+          mkdir -p /tmp/digests/${{ matrix.edition }}
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${{ matrix.edition }}/${digest#sha256:}"
+
+      - name: Upload digest
+        if: (matrix.edition == 'enterprise' && needs.check-and-prepare.outputs.build_enterprise == 'true') || (matrix.edition == 'team' && needs.check-and-prepare.outputs.build_team == 'true')
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.edition }}-arm64
+          path: /tmp/digests/${{ matrix.edition }}/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # Create multi-architecture manifests
+  merge-manifests:
+    needs: [check-and-prepare, build-amd64, build-arm64]
+    if: always() && (needs.build-amd64.result == 'success' || needs.build-arm64.result == 'success')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        edition: [enterprise, team]
+    steps:
+      - name: Skip if not needed
+        if: (matrix.edition == 'enterprise' && needs.check-and-prepare.outputs.build_enterprise == 'false') || (matrix.edition == 'team' && needs.check-and-prepare.outputs.build_team == 'false')
+        run: echo "Skipping ${{ matrix.edition }} manifest creation"
+
+      - name: Download digests
+        if: (matrix.edition == 'enterprise' && needs.check-and-prepare.outputs.build_enterprise == 'true') || (matrix.edition == 'team' && needs.check-and-prepare.outputs.build_team == 'true')
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digests-${{ matrix.edition }}-*
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        if: (matrix.edition == 'enterprise' && needs.check-and-prepare.outputs.build_enterprise == 'true') || (matrix.edition == 'team' && needs.check-and-prepare.outputs.build_team == 'true')
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        if: (matrix.edition == 'enterprise' && needs.check-and-prepare.outputs.build_enterprise == 'true') || (matrix.edition == 'team' && needs.check-and-prepare.outputs.build_team == 'true')
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create manifest list and push
+        if: (matrix.edition == 'enterprise' && needs.check-and-prepare.outputs.build_enterprise == 'true') || (matrix.edition == 'team' && needs.check-and-prepare.outputs.build_team == 'true')
+        working-directory: /tmp/digests
+        run: |
+          docker buildx imagetools create \
+            -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-and-prepare.outputs.version }}-${{ matrix.edition }} \
+            -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-${{ matrix.edition }} \
+            $(printf '${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@sha256:%s ' *)
+
+      - name: Inspect image
+        if: (matrix.edition == 'enterprise' && needs.check-and-prepare.outputs.build_enterprise == 'true') || (matrix.edition == 'team' && needs.check-and-prepare.outputs.build_team == 'true')
+        run: |
+          docker buildx imagetools inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-and-prepare.outputs.version }}-${{ matrix.edition }}
 
   create-release:
-    needs: [check-and-prepare, build-enterprise, build-team]
-    if: always() && (needs.build-enterprise.result == 'success' || needs.build-team.result == 'success')
+    needs: [check-and-prepare, merge-manifests]
+    if: always() && needs.merge-manifests.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -252,109 +319,50 @@ jobs:
           body: |
             # 🚀 Mattermost Multi-Architecture Build ${{ needs.check-and-prepare.outputs.version }}
             
-            Multi-architecture Mattermost server images supporting various platforms.
+            Native multi-architecture Mattermost server images built separately for each platform.
             
             ## 🏗️ Supported Architectures
-            - **AMD64** (x86_64) - Standard servers and desktop environments
-            - **ARM64** (AArch64) - Apple Silicon, AWS Graviton, Raspberry Pi 4+, etc.
+            - **AMD64** (x86_64) - Native build on AMD64 runners
+            - **ARM64** (AArch64) - Native build with QEMU emulation
             
             ## 📥 Usage
             
-            ### Enterprise Edition
+            ### Multi-Architecture (Recommended)
             ```
-            # Multi-arch (automatic platform selection)
+            # Enterprise Edition
             docker run -d --name mattermost-enterprise -p 8065:8065 \
               ${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-enterprise
             
-            # Specific architecture
-            docker run -d --name mattermost-enterprise-arm64 -p 8065:8065 \
-              ${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-enterprise-arm64
-            
-            docker run -d --name mattermost-enterprise-amd64 -p 8065:8065 \
-              ${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-enterprise-amd64
-            ```
-            
-            ### Team Edition
-            ```
-            # Multi-arch (automatic platform selection)
+            # Team Edition
             docker run -d --name mattermost-team -p 8065:8065 \
               ${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-team
+            ```
             
-            # Specific architecture
+            ### Architecture-Specific (For Compatibility Issues)
+            ```
+            # ARM64 specific
             docker run -d --name mattermost-team-arm64 -p 8065:8065 \
               ${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-team-arm64
             
+            # AMD64 specific
             docker run -d --name mattermost-team-amd64 -p 8065:8065 \
               ${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-team-amd64
             ```
             
             ## 📦 Available Images
             
-            ### Enterprise Edition
-            - Multi-arch: `${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-enterprise`
-            - ARM64 specific: `${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-enterprise-arm64`
-            - AMD64 specific: `${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-enterprise-amd64`
+            ### Multi-Architecture Manifests
+            - Enterprise: `${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-enterprise`
+            - Team: `${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-team`
             
-            ### Team Edition
-            - Multi-arch: `${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-team`
-            - ARM64 specific: `${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-team-arm64`
-            - AMD64 specific: `${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-team-amd64`
-            
-            ## 📋 Build Results
-            ${{ needs.build-enterprise.result == 'success' && format('✅ **Enterprise Edition**: Multi-arch build successful') || '⏭️ **Enterprise Edition**: Using existing image' }}
-            
-            ${{ needs.build-team.result == 'success' && format('✅ **Team Edition**: Multi-arch build successful') || '⏭️ **Team Edition**: Using existing image' }}
+            ### Architecture-Specific Images
+            - Enterprise ARM64: `${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-enterprise-arm64`
+            - Enterprise AMD64: `${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-enterprise-amd64`
+            - Team ARM64: `${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-team-arm64`
+            - Team AMD64: `${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-team-amd64`
             
             ---
             **Source Repository**: [mattermost/mattermost](https://github.com/mattermost/mattermost/releases/tag/${{ needs.check-and-prepare.outputs.version }})
           draft: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  build-summary:
-    needs: [check-and-prepare, build-enterprise, build-team, create-release]
-    if: always()
-    runs-on: ubuntu-latest
-    steps:
-      - name: Build Summary
-        run: |
-          echo "## 🏗️ Mattermost Multi-Architecture Build Results" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Version**: ${{ needs.check-and-prepare.outputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Repository**: ${{ needs.check-and-prepare.outputs.repo_name }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Supported Architectures**: AMD64 (x86_64), ARM64 (AArch64)" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          # Enterprise results
-          if [ "${{ needs.check-and-prepare.outputs.build_enterprise }}" = "true" ]; then
-            if [ "${{ needs.build-enterprise.result }}" = "success" ]; then
-              echo "✅ **Enterprise Edition**: Multi-arch build successful" >> $GITHUB_STEP_SUMMARY
-            else
-              echo "❌ **Enterprise Edition**: Build failed" >> $GITHUB_STEP_SUMMARY
-            fi
-          else
-            echo "⏭️ **Enterprise Edition**: Using existing image (build skipped)" >> $GITHUB_STEP_SUMMARY
-          fi
-          
-          # Team results
-          if [ "${{ needs.check-and-prepare.outputs.build_team }}" = "true" ]; then
-            if [ "${{ needs.build-team.result }}" = "success" ]; then
-              echo "✅ **Team Edition**: Multi-arch build successful" >> $GITHUB_STEP_SUMMARY
-            else
-              echo "❌ **Team Edition**: Build failed" >> $GITHUB_STEP_SUMMARY
-            fi
-          else
-            echo "⏭️ **Team Edition**: Using existing image (build skipped)" >> $GITHUB_STEP_SUMMARY
-          fi
-          
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 📦 Available Tags" >> $GITHUB_STEP_SUMMARY
-          echo "#### Enterprise Edition" >> $GITHUB_STEP_SUMMARY
-          echo "- Multi-arch: \`${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-enterprise\`" >> $GITHUB_STEP_SUMMARY
-          echo "- ARM64: \`${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-enterprise-arm64\`" >> $GITHUB_STEP_SUMMARY
-          echo "- AMD64: \`${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-enterprise-amd64\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "#### Team Edition" >> $GITHUB_STEP_SUMMARY
-          echo "- Multi-arch: \`${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-team\`" >> $GITHUB_STEP_SUMMARY
-          echo "- ARM64: \`${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-team-arm64\`" >> $GITHUB_STEP_SUMMARY
-          echo "- AMD64: \`${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-team-amd64\`" >> $GITHUB_STEP_SUMMARY
