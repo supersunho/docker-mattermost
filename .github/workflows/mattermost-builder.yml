@@ -328,8 +328,7 @@ jobs:
               npm \
               python3 \
               make \
-              gcc-aarch64-linux-gnu \
-              libc6-dev-arm64-cross
+              gcc-aarch64-linux-gnu 
           
           # Copy source code
           COPY . .
