@@ -138,6 +138,9 @@ jobs:
           # Download official Dockerfile
           wget https://raw.githubusercontent.com/mattermost/mattermost/${{ needs.check-and-prepare.outputs.version }}/server/build/Dockerfile -O server/build/Dockerfile.original
           
+          # Download entrypoint.sh if exists
+          wget https://raw.githubusercontent.com/mattermost/mattermost/${{ needs.check-and-prepare.outputs.version }}/server/build/entrypoint.sh -O server/build/entrypoint.sh || echo "No entrypoint.sh found"
+          
           # Check original Dockerfile stages
           echo "📋 Checking original Dockerfile stages..."
           grep "FROM.*AS" server/build/Dockerfile.original || echo "No named stages found"
@@ -198,16 +201,23 @@ jobs:
           echo "# ===== RUNTIME STAGE: Original Mattermost structure =====" >> server/build/Dockerfile.amd64
           
           # Replace binary download with copy from source-builder and fix stage name conflicts
-          sed 's|AS builder|AS runtime|g' server/build/Dockerfile.original | \
+          sed 's|ubuntu:noble-[0-9]*\.[0-9]*@sha256:[a-f0-9]*|ubuntu:latest|g' server/build/Dockerfile.original | \
+          sed 's|@sha256:[a-f0-9]*||g' | \
+          sed 's|AS builder|AS runtime|g' | \
           sed '/ARG MM_PACKAGE/,/tar -xzf.*mattermost/c\
-          # Copy built binary instead of downloading\
+          # Copy built binaries instead of downloading\
           COPY --from=source-builder /mattermost-server/bin/mattermost /mattermost/bin/mattermost\
           COPY --from=source-builder /mattermost-server/config /mattermost/config\
           COPY --from=source-builder /mattermost-server/fonts /mattermost/fonts\
           COPY --from=source-builder /mattermost-server/templates /mattermost/templates\
           COPY --from=source-builder /mattermost-server/i18n /mattermost/i18n\
-          COPY --from=source-builder /mattermost-server/webapp/channels/dist /mattermost/client' | \
-          sed 's|@sha256:[a-f0-9]*||g' >> server/build/Dockerfile.amd64
+          COPY --from=source-builder /mattermost-server/webapp/channels/dist /mattermost/client' >> server/build/Dockerfile.amd64
+          
+          # Add entrypoint copy if file exists
+          if [ -f server/build/entrypoint.sh ]; then
+            sed -i '/COPY --from=source-builder.*\/client/a COPY server/build/entrypoint.sh /entrypoint.sh' server/build/Dockerfile.amd64
+            sed -i '/chmod +x.*mattermost/a RUN chmod +x /entrypoint.sh' server/build/Dockerfile.amd64
+          fi
           
           # Set Team edition if needed
           if [ "${{ matrix.edition }}" = "team" ]; then
@@ -391,7 +401,8 @@ jobs:
           
           echo "✅ Created Dockerfile for ARM64 ${{ matrix.edition }}"
           echo "📋 Dockerfile preview:"
-          head -20 server/build/Dockerfile.arm64
+          head -100 server/build/Dockerfile.arm64
+
 
       - name: Set up Docker Buildx
         if: (matrix.edition == 'enterprise' && needs.check-and-prepare.outputs.build_enterprise == 'true') || (matrix.edition == 'team' && needs.check-and-prepare.outputs.build_team == 'true')
