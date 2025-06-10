@@ -214,7 +214,8 @@ jobs:
           echo "✅ Created Dockerfile for AMD64 ${{ matrix.edition }}"
           echo "📋 Complete Dockerfile:"
           cat server/build/Dockerfile.amd64
-
+          tail -100 server/build/Dockerfile.amd64
+          echo "📋 End Dockerfile"
 
       - name: Set up QEMU
         if: (matrix.edition == 'enterprise' && needs.check-and-prepare.outputs.build_enterprise == 'true') || (matrix.edition == 'team' && needs.check-and-prepare.outputs.build_team == 'true')
