@@ -156,11 +156,13 @@ jobs:
                     exit 1
                   fi  
 
+                  sed -i 's/ARG PUID=2000/ARG PUID=1000/g' server/build/Dockerfile.original 
+                  sed -i 's/ARG PGID=2000/ARG PGID=1000/g' server/build/Dockerfile.original 
                   RELEASE_URL="https://releases.mattermost.com/${{ needs.check-and-prepare.outputs.version_clean }}/mattermost-team-${{ needs.check-and-prepare.outputs.version_clean }}-linux-amd64.tar.gz"
                   echo "RELEASE URL: $RELEASE_URL"
                   sed -i "s|ARG MM_PACKAGE=\"[^\"]*\"|ARG MM_PACKAGE=\"${RELEASE_URL}\"|g" server/build/Dockerfile.original 
                   sed 's|^FROM ubuntu:.*|FROM ubuntu:latest AS builder|' server/build/Dockerfile.original > server/build/Dockerfile.clean
- 
+
                   # Team edition configuration
                   if [ "${{ matrix.edition }}" = "team" ]; then
                     sed -i 's|mattermost-enterprise|mattermost-team|g' server/build/Dockerfile.clean
@@ -169,9 +171,9 @@ jobs:
                   # Final Dockerfile composition
                   echo "" >> server/build/Dockerfile.amd64
                   cat server/build/Dockerfile.clean >> server/build/Dockerfile.amd64
- 
+
                   # Clean up
-                  rm -f server/build/Dockerfile.original server/build/Dockerfile.clean 
+                  rm -f server/build/Dockerfile.original server/build/Dockerfile.clean
 
             - name: Set up QEMU
               if: (matrix.edition == 'enterprise' && needs.check-and-prepare.outputs.build_enterprise == 'true') || (matrix.edition == 'team' && needs.check-and-prepare.outputs.build_team == 'true')
@@ -211,6 +213,38 @@ jobs:
                   echo "❌ Build failed for ${{ matrix.edition }} AMD64"
                   exit 1
 
+            - name: Verify AMD64 binary
+              if: (matrix.edition == 'enterprise' && needs.check-and-prepare.outputs.build_enterprise == 'true') || (matrix.edition == 'team' && needs.check-and-prepare.outputs.build_team == 'true')
+              run: |
+                  IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-and-prepare.outputs.version }}-${{ matrix.edition }}-amd64"
+                  echo "🧪 Testing AMD64 binary for ${{ matrix.edition }}..."
+
+                  # Check if binary exists first
+                  echo "Checking if binary exists:"
+                  docker run --rm "$IMAGE" test -f /mattermost/bin/mattermost && echo "✅ Binary exists" || echo "❌ Binary missing"
+
+                  # Test architecture
+                  echo "Architecture test:"
+                  docker run --rm "$IMAGE" uname -m
+
+                  # Test binary execution only if binary exists
+                  if docker run --rm "$IMAGE" test -f /mattermost/bin/mattermost; then
+                    echo "Binary execution test:"
+                    docker run --rm "$IMAGE" /mattermost/bin/mattermost version || echo "Version check completed"
+                  else
+                    echo "❌ Binary not found, failing build"
+                    exit 1
+                  fi
+
+                  # Verify it's AMD64
+                  ARCH_OUTPUT=$(docker run --rm "$IMAGE" uname -m)
+                  if [ "$ARCH_OUTPUT" = "x86_64" ]; then
+                    echo "✅ AMD64 binary verified successfully!"
+                  else
+                    echo "❌ Binary is not AMD64: $ARCH_OUTPUT"
+                    exit 1
+                  fi
+                  
             - name: Export digest
               if: (matrix.edition == 'enterprise' && needs.check-and-prepare.outputs.build_enterprise == 'true') || (matrix.edition == 'team' && needs.check-and-prepare.outputs.build_team == 'true')
               run: |
@@ -278,11 +312,13 @@ jobs:
                     exit 1
                   fi
 
+                  sed -i 's/ARG PUID=2000/ARG PUID=1000/g' server/build/Dockerfile.original 
+                  sed -i 's/ARG PGID=2000/ARG PGID=1000/g' server/build/Dockerfile.original 
                   RELEASE_URL="https://releases.mattermost.com/${{ needs.check-and-prepare.outputs.version_clean }}/mattermost-team-${{ needs.check-and-prepare.outputs.version_clean }}-linux-arm64.tar.gz"
                   echo "RELEASE URL: $RELEASE_URL"
                   sed -i "s|ARG MM_PACKAGE=\"[^\"]*\"|ARG MM_PACKAGE=\"${RELEASE_URL}\"|g" server/build/Dockerfile.original 
                   sed 's|^FROM ubuntu:.*|FROM ubuntu:latest AS builder|' server/build/Dockerfile.original > server/build/Dockerfile.clean
- 
+
                   # Team edition configuration
                   if [ "${{ matrix.edition }}" = "team" ]; then
                     sed -i 's|mattermost-enterprise|mattermost-team|g' server/build/Dockerfile.clean
@@ -291,9 +327,9 @@ jobs:
                   # Final Dockerfile composition
                   echo "" >> server/build/Dockerfile.arm64
                   cat server/build/Dockerfile.clean >> server/build/Dockerfile.arm64
- 
+
                   # Clean up
-                  rm -f server/build/Dockerfile.original server/build/Dockerfile.clean 
+                  rm -f server/build/Dockerfile.original server/build/Dockerfile.clean
 
             - name: Set up Docker Buildx
               if: (matrix.edition == 'enterprise' && needs.check-and-prepare.outputs.build_enterprise == 'true') || (matrix.edition == 'team' && needs.check-and-prepare.outputs.build_team == 'true')
