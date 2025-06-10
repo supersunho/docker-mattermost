@@ -22,43 +22,6 @@ docker pull ghcr.io/supersunho/docker-mattermost/mattermost:latest-team
 
 ```
 
-## 🚀 Quick Start
-
-### Using Docker Compose
-```
-version: '3.8'
-
-services:
-  postgres:
-  image: postgres:13-alpine
-  environment:
-    POSTGRES_DB: mattermost
-    POSTGRES_USER: mmuser
-    POSTGRES_PASSWORD: mmuser_password
-  volumes:
-    - postgres_data:/var/lib/postgresql/data
-
-  mattermost:
-    image: ghcr.io/supersunho/docker-mattermost/mattermost:latest-team
-    ports:
-      - "8065:8065"
-    environment:
-      MM_SQLSETTINGS_DRIVERNAME: postgres
-      MM_SQLSETTINGS_DATASOURCE: "postgres://mmuser:mmuser_password@postgres:5432/mattermost?sslmode=disable&connect_timeout=10"
-    depends_on:
-      - postgres
-    volumes:
-      - mattermost_data:/mattermost/data
-      - mattermost_logs:/mattermost/logs
-      - mattermost_config:/mattermost/config
-
-volumes:
-  postgres_data:
-  mattermost_data:
-  mattermost_logs:
-  mattermost_config:
-```
-
 ## 📋 Edition Differences
 
 - **Enterprise Edition**: Full feature set (commercial license required)
