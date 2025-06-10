@@ -29,7 +29,15 @@ jobs:
       release_notes: ${{ steps.get-version.outputs.release_notes }}
       build_enterprise: ${{ steps.check-images.outputs.build_enterprise }}
       build_team: ${{ steps.check-images.outputs.build_team }}
+      registry_url: ${{ steps.set-vars.outputs.registry_url }}
+      repo_name: ${{ steps.set-vars.outputs.repo_name }}
     steps:
+      - name: Set variables
+        id: set-vars
+        run: |
+          echo "registry_url=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}" >> $GITHUB_OUTPUT
+          echo "repo_name=${{ github.repository }}" >> $GITHUB_OUTPUT
+
       - name: Get target version
         id: get-version
         run: |
@@ -250,12 +258,12 @@ jobs:
             docker run -d \
               --name mattermost-enterprise \
               -p 8065:8065 \
-              ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-and-prepare.outputs.version }}-enterprise
+              ${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-enterprise
             
             # Docker Compose
             services:
               mattermost:
-                image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-and-prepare.outputs.version }}-enterprise
+                image: ${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-enterprise
                 ports:
                   - "8065:8065"
             ```
@@ -266,28 +274,30 @@ jobs:
             docker run -d \
               --name mattermost-team \
               -p 8065:8065 \
-              ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-and-prepare.outputs.version }}-team
+              ${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-team
             
             # Docker Compose
             services:
               mattermost:
-                image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-and-prepare.outputs.version }}-team
+                image: ${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-team
                 ports:
                   - "8065:8065"
             ```
             
             ## 📦 Build Results
-            ${{ needs.build-enterprise.result == 'success' && '✅ **Enterprise Edition**: Multi-arch build successful' || '⏭️ **Enterprise Edition**: Using existing image' }}
+            ${{ needs.build-enterprise.result == 'success' && format('✅ **Enterprise Edition**: `{0}:{1}-enterprise`', needs.check-and-prepare.outputs.registry_url, needs.check-and-prepare.outputs.version) || '⏭️ **Enterprise Edition**: Using existing image' }}
             
-            ${{ needs.build-team.result == 'success' && '✅ **Team Edition**: Multi-arch build successful' || '⏭️ **Team Edition**: Using existing image' }}
+            ${{ needs.build-team.result == 'success' && format('✅ **Team Edition**: `{0}:{1}-team`', needs.check-and-prepare.outputs.registry_url, needs.check-and-prepare.outputs.version) || '⏭️ **Team Edition**: Using existing image' }}
             
             ## 📋 Edition Differences
             - **Enterprise**: Full feature set (commercial license required)
             - **Team**: Core features only (fully open source)
             
-            ## 🔗 Quick Links
-            - [Enterprise Image](${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-and-prepare.outputs.version }}-enterprise)
-            - [Team Image](${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-and-prepare.outputs.version }}-team)
+            ## 🔗 Available Images
+            - **Enterprise**: `${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-enterprise`
+            - **Team**: `${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-team`
+            - **Latest Enterprise**: `${{ needs.check-and-prepare.outputs.registry_url }}:latest-enterprise`
+            - **Latest Team**: `${{ needs.check-and-prepare.outputs.registry_url }}:latest-team`
             
             ---
             **Source Repository**: [mattermost/mattermost](https://github.com/mattermost/mattermost/releases/tag/${{ needs.check-and-prepare.outputs.version }})
@@ -307,6 +317,7 @@ jobs:
           echo "## 🏗️ Mattermost Multi-Architecture Build Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Version**: ${{ needs.check-and-prepare.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Repository**: ${{ needs.check-and-prepare.outputs.repo_name }}" >> $GITHUB_STEP_SUMMARY
           echo "**Supported Architectures**: AMD64 (x86_64), ARM64 (AArch64)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
@@ -334,8 +345,8 @@ jobs:
           
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 📦 Image URLs" >> $GITHUB_STEP_SUMMARY
-          echo "- **Enterprise**: \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-and-prepare.outputs.version }}-enterprise\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Team**: \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-and-prepare.outputs.version }}-team\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Enterprise**: \`${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-enterprise\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Team**: \`${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-team\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 🌐 Platform Compatibility" >> $GITHUB_STEP_SUMMARY
           echo "- **AMD64**: Intel/AMD processors (standard servers, PCs)" >> $GITHUB_STEP_SUMMARY
