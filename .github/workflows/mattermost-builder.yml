@@ -141,7 +141,23 @@ jobs:
             exit 1
           fi
 
-          wget https://raw.githubusercontent.com/mattermost/mattermost/${{ needs.check-and-prepare.outputs.version }}/server/build/entrypoint.sh -O server/build/entrypoint.sh
+          # Download entrypoint.sh 파일
+          if ! wget https://raw.githubusercontent.com/mattermost/mattermost/${{ needs.check-and-prepare.outputs.version }}/server/build/entrypoint.sh -O entrypoint.sh; then
+            echo "❌ Failed to download entrypoint.sh"
+            exit 1
+          fi
+          
+          # 실행 권한 부여
+          chmod +x entrypoint.sh
+          
+          # 파일 존재 확인
+          if [ ! -f entrypoint.sh ]; then
+            echo "❌ entrypoint.sh file not found after download"
+            exit 1
+          fi
+          
+          echo "✅ Downloaded entrypoint.sh successfully"
+          ls -la entrypoint.sh
           
           # Create source-builder stage
           cat > server/build/source-builder-stage.dockerfile << 'BUILDER_EOF'
@@ -289,8 +305,15 @@ jobs:
             echo "❌ Failed to download Dockerfile"
             exit 1
           fi
-
-          wget https://raw.githubusercontent.com/mattermost/mattermost/${{ needs.check-and-prepare.outputs.version }}/server/build/entrypoint.sh -O server/build/entrypoint.sh
+          
+          # Download entrypoint.sh 파일
+          if ! wget https://raw.githubusercontent.com/mattermost/mattermost/${{ needs.check-and-prepare.outputs.version }}/server/build/entrypoint.sh -O entrypoint.sh; then
+            echo "❌ Failed to download entrypoint.sh"
+            exit 1
+          fi
+          
+          # 실행 권한 부여
+          chmod +x entrypoint.sh
           
           # Create source-builder stage for ARM64
           cat > server/build/source-builder-stage.dockerfile << 'BUILDER_EOF'
