@@ -24,24 +24,6 @@ docker pull ghcr.io/supersunho/docker-mattermost/mattermost:latest-team
 
 ## 🚀 Quick Start
 
-### Using Docker Run
-
-**Enterprise Edition:**
-```
-docker run -d
-  --name mattermost-enterprise
-  -p 8065:8065
-  ghcr.io/supersunho/docker-mattermost/mattermost:latest-enterprise
-```
-
-**Team Edition:**
-```
-docker run -d
-  --name mattermost-team
-  -p 8065:8065
-  ghcr.io/supersunho/docker-mattermost/mattermost:latest-team
-```
-
 ### Using Docker Compose
 ```
 version: '3.8'
