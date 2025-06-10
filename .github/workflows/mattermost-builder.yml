@@ -1,4 +1,4 @@
-name: Mattermost ARM64 Builder
+name: Mattermost Builder
 
 on:
   schedule:
@@ -124,7 +124,7 @@ jobs:
       - name: Build and push multi-architecture image
         uses: docker/build-push-action@v5
         with:
-          context: "{{defaultContext}}:server/build"
+          context: https://github.com/mattermost/mattermost.git#${{ needs.check-version.outputs.version }}
           file: Dockerfile
           platforms: linux/arm64,linux/amd64
           push: true
