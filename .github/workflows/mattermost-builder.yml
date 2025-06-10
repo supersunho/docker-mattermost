@@ -141,16 +141,16 @@ jobs:
                     exit 1
                   fi
 
-                  # Download entrypoint.sh 파일
+                  # Download entrypoint.sh file
                   if ! wget https://raw.githubusercontent.com/mattermost/mattermost/${{ needs.check-and-prepare.outputs.version }}/server/build/entrypoint.sh -O entrypoint.sh; then
                     echo "❌ Failed to download entrypoint.sh"
                     exit 1
                   fi
 
-                  # 실행 권한 부여
+                  # Grant execution permission
                   chmod +x entrypoint.sh
 
-                  # 파일 존재 확인
+                  # Check file existence
                   if [ ! -f entrypoint.sh ]; then
                     echo "❌ entrypoint.sh file not found after download"
                     exit 1
@@ -161,12 +161,12 @@ jobs:
                   sed -i "s|ARG MM_PACKAGE=\"[^\"]*\"|ARG MM_PACKAGE=\"${RELEASE_URL}\"|g" server/build/Dockerfile.original 
                   sed 's|^FROM ubuntu:.*|FROM ubuntu:latest AS builder|' server/build/Dockerfile.original > server/build/Dockerfile.clean
  
-                  # Team edition 설정
+                  # Team edition configuration
                   if [ "${{ matrix.edition }}" = "team" ]; then
                     sed -i 's|mattermost-enterprise|mattermost-team|g' server/build/Dockerfile.clean
                   fi
 
-                  # 최종 Dockerfile 조합 
+                  # Final Dockerfile composition
                   echo "" >> server/build/Dockerfile.amd64
                   cat server/build/Dockerfile.clean >> server/build/Dockerfile.amd64
  
@@ -263,32 +263,32 @@ jobs:
                     exit 1
                   fi
 
-                  # Download entrypoint.sh 파일
+                  # Download entrypoint.sh file
                   if ! wget https://raw.githubusercontent.com/mattermost/mattermost/${{ needs.check-and-prepare.outputs.version }}/server/build/entrypoint.sh -O entrypoint.sh; then
                     echo "❌ Failed to download entrypoint.sh"
                     exit 1
                   fi
 
-                  # 실행 권한 부여
+                  # Grant execution permission
                   chmod +x entrypoint.sh
 
-                  # 파일 존재 확인
+                  # Check file existence
                   if [ ! -f entrypoint.sh ]; then
                     echo "❌ entrypoint.sh file not found after download"
                     exit 1
-                  fi  
+                  fi
 
                   RELEASE_URL="https://releases.mattermost.com/${{ needs.check-and-prepare.outputs.version_clean }}/mattermost-team-${{ needs.check-and-prepare.outputs.version_clean }}-linux-arm64.tar.gz"
                   echo "RELEASE URL: $RELEASE_URL"
                   sed -i "s|ARG MM_PACKAGE=\"[^\"]*\"|ARG MM_PACKAGE=\"${RELEASE_URL}\"|g" server/build/Dockerfile.original 
                   sed 's|^FROM ubuntu:.*|FROM ubuntu:latest AS builder|' server/build/Dockerfile.original > server/build/Dockerfile.clean
  
-                  # Team edition 설정
+                  # Team edition configuration
                   if [ "${{ matrix.edition }}" = "team" ]; then
                     sed -i 's|mattermost-enterprise|mattermost-team|g' server/build/Dockerfile.clean
                   fi
 
-                  # 최종 Dockerfile 조합 
+                  # Final Dockerfile composition
                   echo "" >> server/build/Dockerfile.arm64
                   cat server/build/Dockerfile.clean >> server/build/Dockerfile.arm64
  
