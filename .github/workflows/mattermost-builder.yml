@@ -1,4 +1,4 @@
-name: Mattermost Multi-Arch Builder with Official Dockerfile
+name: Mattermost Multi-Arch Builder
 
 on:
   schedule:
@@ -129,18 +129,18 @@ jobs:
           ref: ${{ needs.check-and-prepare.outputs.version }}
           path: mattermost-source
 
-      - name: Download and create hybrid Dockerfile for AMD64
+      - name: Download and create Dockerfile for AMD64
         if: (matrix.edition == 'enterprise' && needs.check-and-prepare.outputs.build_enterprise == 'true') || (matrix.edition == 'team' && needs.check-and-prepare.outputs.build_team == 'true')
         run: |
           cd mattermost-source
           echo "📥 Downloading official Dockerfile..."
           
           # Download official Dockerfile
-          wget https://raw.githubusercontent.com/mattermost/mattermost/${{ needs.check-and-prepare.outputs.version }}/server/build/Dockerfile -O server/build/Dockerfile.official
+          wget https://raw.githubusercontent.com/mattermost/mattermost/${{ needs.check-and-prepare.outputs.version }}/server/build/Dockerfile -O server/build/Dockerfile.original
           
-          # Create hybrid Dockerfile with builder stage + official structure
-          cat > server/build/Dockerfile.amd64-hybrid << 'EOF'
-          # ===== BUILDER STAGE: Build from source for AMD64 =====
+          # Create new Dockerfile with builder stage + original
+          cat > server/build/Dockerfile.amd64 << 'EOF'
+          # ===== BUILDER STAGE =====
           FROM golang:1.21-alpine AS builder
           
           WORKDIR /mattermost-server
@@ -173,28 +173,26 @@ jobs:
           
           EOF
           
-          # Append official Dockerfile content but replace binary download with our built binary
-          echo "# ===== RUNTIME STAGE: Official Mattermost structure =====" >> server/build/Dockerfile.amd64-hybrid
+          # Append original Dockerfile but modify binary source
+          echo "# ===== ORIGINAL DOCKERFILE (MODIFIED) =====" >> server/build/Dockerfile.amd64
           
-          # Process official Dockerfile and replace binary download with copy from builder
+          # Replace binary download with copy from builder
           sed '/ARG MM_PACKAGE/,/tar -xzf.*mattermost/c\
-          # Use built binary instead of downloading\
+          # Copy built binary instead of downloading\
           COPY --from=builder /mattermost-server/bin/mattermost /mattermost/bin/mattermost\
           COPY --from=builder /mattermost-server/config /mattermost/config\
           COPY --from=builder /mattermost-server/fonts /mattermost/fonts\
           COPY --from=builder /mattermost-server/templates /mattermost/templates\
           COPY --from=builder /mattermost-server/i18n /mattermost/i18n\
-          COPY --from=builder /mattermost-server/webapp/channels/dist /mattermost/client' server/build/Dockerfile.official >> server/build/Dockerfile.amd64-hybrid
+          COPY --from=builder /mattermost-server/webapp/channels/dist /mattermost/client' server/build/Dockerfile.original | \
+          sed 's|@sha256:[a-f0-9]*||g' >> server/build/Dockerfile.amd64
           
-          # Remove SHA256 hashes for compatibility
-          sed -i 's|@sha256:[a-f0-9]*||g' server/build/Dockerfile.amd64-hybrid
-          
-          # Set Team edition package if needed
+          # Set Team edition if needed
           if [ "${{ matrix.edition }}" = "team" ]; then
-            sed -i 's|mattermost-enterprise-linux|mattermost-team-linux|g' server/build/Dockerfile.amd64-hybrid
+            sed -i 's|mattermost-enterprise-linux|mattermost-team-linux|g' server/build/Dockerfile.amd64
           fi
           
-          echo "✅ Created hybrid Dockerfile for AMD64 ${{ matrix.edition }}"
+          echo "✅ Created Dockerfile for AMD64 ${{ matrix.edition }}"
 
       - name: Set up QEMU
         if: (matrix.edition == 'enterprise' && needs.check-and-prepare.outputs.build_enterprise == 'true') || (matrix.edition == 'team' && needs.check-and-prepare.outputs.build_team == 'true')
@@ -218,7 +216,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: ./mattermost-source
-          file: ./mattermost-source/server/build/Dockerfile.amd64-hybrid
+          file: ./mattermost-source/server/build/Dockerfile.amd64
           platforms: linux/amd64
           push: true
           tags: |
@@ -244,8 +242,8 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  # Native ARM64 build with official Dockerfile structure
-  build-arm64-hybrid:
+  # Native ARM64 build
+  build-arm64:
     needs: check-and-prepare
     if: needs.check-and-prepare.outputs.build_enterprise == 'true' || needs.check-and-prepare.outputs.build_team == 'true'
     runs-on: ubuntu-24.04-arm
@@ -268,21 +266,21 @@ jobs:
           ref: ${{ needs.check-and-prepare.outputs.version }}
           path: mattermost-source
 
-      - name: Download and create hybrid Dockerfile for ARM64
+      - name: Download and create Dockerfile for ARM64
         if: (matrix.edition == 'enterprise' && needs.check-and-prepare.outputs.build_enterprise == 'true') || (matrix.edition == 'team' && needs.check-and-prepare.outputs.build_team == 'true')
         run: |
           cd mattermost-source
-          echo "📥 Downloading official Dockerfile for ARM64 hybrid..."
+          echo "📥 Downloading official Dockerfile for ARM64..."
           
           # Download official Dockerfile
-          wget https://raw.githubusercontent.com/mattermost/mattermost/${{ needs.check-and-prepare.outputs.version }}/server/build/Dockerfile -O server/build/Dockerfile.official
+          wget https://raw.githubusercontent.com/mattermost/mattermost/${{ needs.check-and-prepare.outputs.version }}/server/build/Dockerfile -O server/build/Dockerfile.original
           
           # Download entrypoint.sh if exists
           wget https://raw.githubusercontent.com/mattermost/mattermost/${{ needs.check-and-prepare.outputs.version }}/server/build/entrypoint.sh -O server/build/entrypoint.sh || echo "No entrypoint.sh found"
           
-          # Create complete hybrid Dockerfile with builder + official structure
-          cat > server/build/Dockerfile.arm64-hybrid << 'EOF'
-          # ===== BUILDER STAGE: Build from source for ARM64 =====
+          # Create new Dockerfile with builder stage + original
+          cat > server/build/Dockerfile.arm64 << 'EOF'
+          # ===== BUILDER STAGE =====
           FROM golang:1.21-alpine AS builder
           
           WORKDIR /mattermost-server
@@ -313,36 +311,35 @@ jobs:
           # Build webapp
           RUN cd webapp && npm ci && npm run build
           
-          # ===== RUNTIME STAGE: Based on official Dockerfile =====
           EOF
           
-          # Process official Dockerfile
-          # Replace Ubuntu version and remove SHA256 hashes
-          sed 's|ubuntu:noble-[0-9]*\.[0-9]*@sha256:[a-f0-9]*|ubuntu:latest|g' server/build/Dockerfile.official | \
+          # Append original Dockerfile but modify binary source
+          echo "# ===== ORIGINAL DOCKERFILE (MODIFIED) =====" >> server/build/Dockerfile.arm64
+          
+          # Replace binary download with copy from builder
+          sed 's|ubuntu:noble-[0-9]*\.[0-9]*@sha256:[a-f0-9]*|ubuntu:latest|g' server/build/Dockerfile.original | \
           sed 's|@sha256:[a-f0-9]*||g' | \
           sed '/ARG MM_PACKAGE/,/tar -xzf.*mattermost/c\
-          # Use built binaries instead of downloading\
+          # Copy built binaries instead of downloading\
           COPY --from=builder /mattermost-server/bin/mattermost /mattermost/bin/mattermost\
           COPY --from=builder /mattermost-server/config /mattermost/config\
           COPY --from=builder /mattermost-server/fonts /mattermost/fonts\
           COPY --from=builder /mattermost-server/templates /mattermost/templates\
           COPY --from=builder /mattermost-server/i18n /mattermost/i18n\
-          COPY --from=builder /mattermost-server/webapp/channels/dist /mattermost/client' >> server/build/Dockerfile.arm64-hybrid
+          COPY --from=builder /mattermost-server/webapp/channels/dist /mattermost/client' >> server/build/Dockerfile.arm64
           
           # Add entrypoint copy if file exists
           if [ -f server/build/entrypoint.sh ]; then
-            sed -i '/COPY --from=builder.*\/client/a COPY server/build/entrypoint.sh /entrypoint.sh' server/build/Dockerfile.arm64-hybrid
-            sed -i '/chmod +x.*mattermost/a RUN chmod +x /entrypoint.sh' server/build/Dockerfile.arm64-hybrid
+            sed -i '/COPY --from=builder.*\/client/a COPY server/build/entrypoint.sh /entrypoint.sh' server/build/Dockerfile.arm64
+            sed -i '/chmod +x.*mattermost/a RUN chmod +x /entrypoint.sh' server/build/Dockerfile.arm64
           fi
           
           # Set Team edition if needed
           if [ "${{ matrix.edition }}" = "team" ]; then
-            sed -i 's|mattermost-enterprise-linux|mattermost-team-linux|g' server/build/Dockerfile.arm64-hybrid
+            sed -i 's|mattermost-enterprise-linux|mattermost-team-linux|g' server/build/Dockerfile.arm64
           fi
           
-          echo "✅ Created hybrid Dockerfile for ARM64 ${{ matrix.edition }}"
-          echo "📋 Dockerfile preview:"
-          head -20 server/build/Dockerfile.arm64-hybrid
+          echo "✅ Created Dockerfile for ARM64 ${{ matrix.edition }}"
 
       - name: Set up Docker Buildx
         if: (matrix.edition == 'enterprise' && needs.check-and-prepare.outputs.build_enterprise == 'true') || (matrix.edition == 'team' && needs.check-and-prepare.outputs.build_team == 'true')
@@ -356,13 +353,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push ARM64 ${{ matrix.edition }} (Hybrid)
+      - name: Build and push ARM64 ${{ matrix.edition }}
         if: (matrix.edition == 'enterprise' && needs.check-and-prepare.outputs.build_enterprise == 'true') || (matrix.edition == 'team' && needs.check-and-prepare.outputs.build_team == 'true')
         id: build
         uses: docker/build-push-action@v5
         with:
           context: ./mattermost-source
-          file: ./mattermost-source/server/build/Dockerfile.arm64-hybrid
+          file: ./mattermost-source/server/build/Dockerfile.arm64
           platforms: linux/arm64
           push: true
           tags: |
@@ -372,19 +369,15 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.edition }}-arm64-${{ needs.check-and-prepare.outputs.cache_key }}
           cache-to: type=gha,mode=max,scope=${{ matrix.edition }}-arm64-${{ needs.check-and-prepare.outputs.cache_key }}
 
-      - name: Verify ARM64 hybrid binary
+      - name: Verify ARM64 binary
         if: (matrix.edition == 'enterprise' && needs.check-and-prepare.outputs.build_enterprise == 'true') || (matrix.edition == 'team' && needs.check-and-prepare.outputs.build_team == 'true')
         run: |
           IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-and-prepare.outputs.version }}-${{ matrix.edition }}-arm64"
-          echo "🧪 Testing ARM64 hybrid binary for ${{ matrix.edition }}..."
+          echo "🧪 Testing ARM64 binary for ${{ matrix.edition }}..."
           
           # Test architecture
           echo "Architecture test:"
           docker run --rm "$IMAGE" uname -m
-          
-          # Test binary format
-          echo "Binary format test:"
-          docker run --rm "$IMAGE" file /mattermost/bin/mattermost
           
           # Test binary execution
           echo "Binary execution test:"
@@ -393,7 +386,7 @@ jobs:
           # Verify it's ARM64
           ARCH_OUTPUT=$(docker run --rm "$IMAGE" uname -m)
           if [ "$ARCH_OUTPUT" = "aarch64" ]; then
-            echo "✅ ARM64 hybrid binary verified successfully!"
+            echo "✅ ARM64 binary verified successfully!"
           else
             echo "❌ Binary is not ARM64: $ARCH_OUTPUT"
             exit 1
@@ -417,8 +410,8 @@ jobs:
 
   # Create multi-architecture manifests
   merge-manifests:
-    needs: [check-and-prepare, build-amd64, build-arm64-hybrid]
-    if: always() && (needs.build-amd64.result == 'success' || needs.build-arm64-hybrid.result == 'success')
+    needs: [check-and-prepare, build-amd64, build-arm64]
+    if: always() && (needs.build-amd64.result == 'success' || needs.build-arm64.result == 'success')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -478,21 +471,20 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ needs.check-and-prepare.outputs.version }}
-          name: "Mattermost Hybrid Multi-Arch ${{ needs.check-and-prepare.outputs.version }}"
+          name: "Mattermost Multi-Arch ${{ needs.check-and-prepare.outputs.version }}"
           body: |
-            # 🚀 Mattermost Hybrid Multi-Architecture Build ${{ needs.check-and-prepare.outputs.version }}
+            # 🚀 Mattermost Multi-Architecture Build ${{ needs.check-and-prepare.outputs.version }}
             
-            Hybrid multi-architecture Mattermost images combining official Dockerfile structure with source-built binaries for ARM64 compatibility.
+            Multi-architecture Mattermost server images combining official Dockerfile structure with source-built binaries for ARM64 compatibility.
             
-            ## 🏗️ Hybrid Build Method
+            ## 🏗️ Build Method
             - **Builder Stage**: Source compilation for native ARM64/AMD64 binaries
             - **Runtime Stage**: Official Mattermost Dockerfile structure and dependencies
-            - **Best of Both**: Official compatibility + ARM64 exec format error fix
+            - **Native Performance**: True native binaries for each architecture
             
             ## 🔧 Key Features
             - **Official Structure**: Uses actual Mattermost Dockerfile for runtime environment
             - **Source-Built Binaries**: ARM64 binaries built from source to fix exec format error
-            - **Native Performance**: True native binaries for each architecture
             - **Full Compatibility**: All official Mattermost features and configurations
             
             ## 📥 Usage
@@ -510,22 +502,22 @@ jobs:
             
             ### Architecture-Specific (Maximum Compatibility)
             ```
-            # ARM64 hybrid (recommended for ARM64 systems)
+            # ARM64 (recommended for ARM64 systems)
             docker run -d --name mattermost-team-arm64 -p 8065:8065 \
               ${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-team-arm64
             
-            # AMD64 hybrid
+            # AMD64
             docker run -d --name mattermost-team-amd64 -p 8065:8065 \
               ${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-team-amd64
             ```
             
-            ## 📦 Available Hybrid Images
+            ## 📦 Available Images
             
             ### Multi-Architecture Manifests
             - Enterprise: `${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-enterprise`
             - Team: `${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-team`
             
-            ### Architecture-Specific Hybrid Images
+            ### Architecture-Specific Images
             - Enterprise ARM64: `${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-enterprise-arm64`
             - Enterprise AMD64: `${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-enterprise-amd64`
             - Team ARM64: `${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-team-arm64`
@@ -544,57 +536,51 @@ jobs:
             docker run --rm ${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-team-arm64 uname -m
             # Should output: aarch64
             
-            # Verify binary format
-            docker run --rm ${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-team-arm64 file /mattermost/bin/mattermost
-            # Should show: ELF 64-bit LSB executable, ARM aarch64
-            
             # Test version
             docker run --rm ${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-team-arm64 /mattermost/bin/mattermost version
             ```
             
-            ## 🛠️ Hybrid Build Information
+            ## 🛠️ Build Information
             - **Source**: Official Mattermost Dockerfile + Source-built binaries
             - **Version**: ${{ needs.check-and-prepare.outputs.version }}
-            - **Build Method**: Hybrid (Official structure + Source compilation)
+            - **Build Method**: Official structure + Source compilation
             - **Cache Key**: ${{ needs.check-and-prepare.outputs.cache_key }}
             
             ---
             **Source Repository**: [mattermost/mattermost](https://github.com/mattermost/mattermost/releases/tag/${{ needs.check-and-prepare.outputs.version }})
-            
-            **Official Dockerfile**: Used as base for runtime environment
           draft: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-summary:
-    needs: [check-and-prepare, build-amd64, build-arm64-hybrid, merge-manifests, create-release]
+    needs: [check-and-prepare, build-amd64, build-arm64, merge-manifests, create-release]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Build Summary
         run: |
-          echo "## 🏗️ Mattermost Hybrid Multi-Architecture Build Results" >> $GITHUB_STEP_SUMMARY
+          echo "## 🏗️ Mattermost Multi-Architecture Build Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Version**: ${{ needs.check-and-prepare.outputs.version }}" >> $GITHUB_STEP_SUMMARY
           echo "**Repository**: ${{ needs.check-and-prepare.outputs.repo_name }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Build Method**: Hybrid (Official Dockerfile + Source compilation)" >> $GITHUB_STEP_SUMMARY
+          echo "**Build Method**: Official Dockerfile + Source compilation" >> $GITHUB_STEP_SUMMARY
           echo "**AMD64 Build**: Standard ubuntu-latest runners" >> $GITHUB_STEP_SUMMARY
           echo "**ARM64 Build**: Native ubuntu-24.04-arm runners" >> $GITHUB_STEP_SUMMARY
           echo "**Cache Key**: ${{ needs.check-and-prepare.outputs.cache_key }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
           # AMD64 results
-          echo "### 🖥️ AMD64 Hybrid Build Results" >> $GITHUB_STEP_SUMMARY
+          echo "### 🖥️ AMD64 Build Results" >> $GITHUB_STEP_SUMMARY
           if [ "${{ needs.build-amd64.result }}" = "success" ]; then
-            echo "✅ **AMD64**: Hybrid build successful" >> $GITHUB_STEP_SUMMARY
+            echo "✅ **AMD64**: Build successful" >> $GITHUB_STEP_SUMMARY
           else
             echo "❌ **AMD64**: Build failed" >> $GITHUB_STEP_SUMMARY
           fi
           
           # ARM64 results
-          echo "### 🔧 ARM64 Hybrid Build Results" >> $GITHUB_STEP_SUMMARY
-          if [ "${{ needs.build-arm64-hybrid.result }}" = "success" ]; then
-            echo "✅ **ARM64**: Hybrid build successful with exec format error fix" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔧 ARM64 Build Results" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ needs.build-arm64.result }}" = "success" ]; then
+            echo "✅ **ARM64**: Build successful with exec format error fix" >> $GITHUB_STEP_SUMMARY
           else
             echo "❌ **ARM64**: Build failed" >> $GITHUB_STEP_SUMMARY
           fi
@@ -602,30 +588,30 @@ jobs:
           # Edition results
           echo "### 📦 Edition Build Status" >> $GITHUB_STEP_SUMMARY
           if [ "${{ needs.check-and-prepare.outputs.build_enterprise }}" = "true" ]; then
-            echo "🏢 **Enterprise Edition**: Built with hybrid approach" >> $GITHUB_STEP_SUMMARY
+            echo "🏢 **Enterprise Edition**: Built" >> $GITHUB_STEP_SUMMARY
           else
             echo "⏭️ **Enterprise Edition**: Skipped (existing image)" >> $GITHUB_STEP_SUMMARY
           fi
           
           if [ "${{ needs.check-and-prepare.outputs.build_team }}" = "true" ]; then
-            echo "👥 **Team Edition**: Built with hybrid approach" >> $GITHUB_STEP_SUMMARY
+            echo "👥 **Team Edition**: Built" >> $GITHUB_STEP_SUMMARY
           else
             echo "⏭️ **Team Edition**: Skipped (existing image)" >> $GITHUB_STEP_SUMMARY
           fi
           
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 📦 Available Hybrid Images" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 Available Images" >> $GITHUB_STEP_SUMMARY
           echo "#### Enterprise Edition" >> $GITHUB_STEP_SUMMARY
           echo "- Multi-arch: \`${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-enterprise\`" >> $GITHUB_STEP_SUMMARY
-          echo "- ARM64 Hybrid: \`${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-enterprise-arm64\`" >> $GITHUB_STEP_SUMMARY
-          echo "- AMD64 Hybrid: \`${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-enterprise-amd64\`" >> $GITHUB_STEP_SUMMARY
+          echo "- ARM64: \`${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-enterprise-arm64\`" >> $GITHUB_STEP_SUMMARY
+          echo "- AMD64: \`${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-enterprise-amd64\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "#### Team Edition" >> $GITHUB_STEP_SUMMARY
           echo "- Multi-arch: \`${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-team\`" >> $GITHUB_STEP_SUMMARY
-          echo "- ARM64 Hybrid: \`${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-team-arm64\`" >> $GITHUB_STEP_SUMMARY
-          echo "- AMD64 Hybrid: \`${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-team-amd64\`" >> $GITHUB_STEP_SUMMARY
+          echo "- ARM64: \`${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-team-arm64\`" >> $GITHUB_STEP_SUMMARY
+          echo "- AMD64: \`${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-team-amd64\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 🚀 Hybrid Build Advantages" >> $GITHUB_STEP_SUMMARY
+          echo "### 🚀 Build Advantages" >> $GITHUB_STEP_SUMMARY
           echo "- **Official Compatibility**: Uses actual Mattermost Dockerfile structure" >> $GITHUB_STEP_SUMMARY
           echo "- **ARM64 Fix**: Source-built binaries resolve exec format errors" >> $GITHUB_STEP_SUMMARY
           echo "- **Native Performance**: True native binaries for each architecture" >> $GITHUB_STEP_SUMMARY
