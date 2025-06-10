@@ -138,10 +138,14 @@ jobs:
           # Download official Dockerfile
           wget https://raw.githubusercontent.com/mattermost/mattermost/${{ needs.check-and-prepare.outputs.version }}/server/build/Dockerfile -O server/build/Dockerfile.original
           
-          # Create new Dockerfile with builder stage + original
+          # Check original Dockerfile stages
+          echo "📋 Checking original Dockerfile stages..."
+          grep "FROM.*AS" server/build/Dockerfile.original || echo "No named stages found"
+          
+          # Create new Dockerfile with source-builder stage + original
           cat > server/build/Dockerfile.amd64 << 'EOF'
-          # ===== BUILDER STAGE =====
-          FROM golang:1.21-alpine AS builder
+          # ===== SOURCE BUILDER STAGE =====
+          FROM golang:1.21-alpine AS source-builder
           
           WORKDIR /mattermost-server
           
@@ -158,33 +162,51 @@ jobs:
           COPY . .
           
           # Download Go modules
-          RUN go mod download
+          RUN set -e && \
+              go mod download && \
+              echo "✅ Go modules downloaded successfully"
           
           # Set environment for AMD64 build
           ENV CGO_ENABLED=0
           ENV GOOS=linux
           ENV GOARCH=amd64
           
-          # Build server
-          RUN make build-server
+          # Build server with error checking
+          RUN set -e && \
+              echo "🔨 Building Mattermost server for AMD64..." && \
+              make build-server && \
+              test -f /mattermost-server/bin/mattermost && \
+              echo "✅ Server build completed successfully"
           
-          # Build webapp
-          RUN cd webapp && npm ci && npm run build
+          # Build webapp with error checking
+          RUN set -e && \
+              echo "🔨 Building webapp..." && \
+              cd webapp && \
+              npm ci && \
+              npm run build && \
+              test -d /mattermost-server/webapp/channels/dist && \
+              echo "✅ Webapp build completed successfully"
+          
+          # Final verification
+          RUN echo "🧪 Final verification..." && \
+              ls -la /mattermost-server/bin/mattermost && \
+              echo "✅ All builds completed successfully"
           
           EOF
           
-          # Append original Dockerfile but modify binary source
-          echo "# ===== ORIGINAL DOCKERFILE (MODIFIED) =====" >> server/build/Dockerfile.amd64
+          # Append original Dockerfile but modify binary source and stage names
+          echo "# ===== RUNTIME STAGE: Original Mattermost structure =====" >> server/build/Dockerfile.amd64
           
-          # Replace binary download with copy from builder
+          # Replace binary download with copy from source-builder and fix stage name conflicts
+          sed 's|AS builder|AS runtime|g' server/build/Dockerfile.original | \
           sed '/ARG MM_PACKAGE/,/tar -xzf.*mattermost/c\
           # Copy built binary instead of downloading\
-          COPY --from=builder /mattermost-server/bin/mattermost /mattermost/bin/mattermost\
-          COPY --from=builder /mattermost-server/config /mattermost/config\
-          COPY --from=builder /mattermost-server/fonts /mattermost/fonts\
-          COPY --from=builder /mattermost-server/templates /mattermost/templates\
-          COPY --from=builder /mattermost-server/i18n /mattermost/i18n\
-          COPY --from=builder /mattermost-server/webapp/channels/dist /mattermost/client' server/build/Dockerfile.original | \
+          COPY --from=source-builder /mattermost-server/bin/mattermost /mattermost/bin/mattermost\
+          COPY --from=source-builder /mattermost-server/config /mattermost/config\
+          COPY --from=source-builder /mattermost-server/fonts /mattermost/fonts\
+          COPY --from=source-builder /mattermost-server/templates /mattermost/templates\
+          COPY --from=source-builder /mattermost-server/i18n /mattermost/i18n\
+          COPY --from=source-builder /mattermost-server/webapp/channels/dist /mattermost/client' | \
           sed 's|@sha256:[a-f0-9]*||g' >> server/build/Dockerfile.amd64
           
           # Set Team edition if needed
@@ -225,6 +247,12 @@ jobs:
           no-cache: ${{ github.event.inputs.clear_cache == 'true' }}
           cache-from: type=gha,scope=${{ matrix.edition }}-amd64-${{ needs.check-and-prepare.outputs.cache_key }}
           cache-to: type=gha,mode=max,scope=${{ matrix.edition }}-amd64-${{ needs.check-and-prepare.outputs.cache_key }}
+
+      - name: Check build success
+        if: failure()
+        run: |
+          echo "❌ Build failed for ${{ matrix.edition }} AMD64"
+          exit 1
 
       - name: Export digest
         if: (matrix.edition == 'enterprise' && needs.check-and-prepare.outputs.build_enterprise == 'true') || (matrix.edition == 'team' && needs.check-and-prepare.outputs.build_team == 'true')
@@ -278,10 +306,14 @@ jobs:
           # Download entrypoint.sh if exists
           wget https://raw.githubusercontent.com/mattermost/mattermost/${{ needs.check-and-prepare.outputs.version }}/server/build/entrypoint.sh -O server/build/entrypoint.sh || echo "No entrypoint.sh found"
           
-          # Create new Dockerfile with builder stage + original
+          # Check original Dockerfile stages
+          echo "📋 Checking original Dockerfile stages..."
+          grep "FROM.*AS" server/build/Dockerfile.original || echo "No named stages found"
+          
+          # Create new Dockerfile with source-builder stage + original
           cat > server/build/Dockerfile.arm64 << 'EOF'
-          # ===== BUILDER STAGE =====
-          FROM golang:1.21-alpine AS builder
+          # ===== SOURCE BUILDER STAGE =====
+          FROM golang:1.21-alpine AS source-builder
           
           WORKDIR /mattermost-server
           
@@ -298,39 +330,57 @@ jobs:
           COPY . .
           
           # Download Go modules
-          RUN go mod download
+          RUN set -e && \
+              go mod download && \
+              echo "✅ Go modules downloaded successfully"
           
           # Set environment for ARM64 native build
           ENV CGO_ENABLED=0
           ENV GOOS=linux
           ENV GOARCH=arm64
           
-          # Build server natively on ARM64
-          RUN make build-server
+          # Build server natively on ARM64 with error checking
+          RUN set -e && \
+              echo "🔨 Building Mattermost server for ARM64..." && \
+              make build-server && \
+              test -f /mattermost-server/bin/mattermost && \
+              echo "✅ Server build completed successfully"
           
-          # Build webapp
-          RUN cd webapp && npm ci && npm run build
+          # Build webapp with error checking
+          RUN set -e && \
+              echo "🔨 Building webapp..." && \
+              cd webapp && \
+              npm ci && \
+              npm run build && \
+              test -d /mattermost-server/webapp/channels/dist && \
+              echo "✅ Webapp build completed successfully"
+          
+          # Final verification
+          RUN echo "🧪 Final verification..." && \
+              ls -la /mattermost-server/bin/mattermost && \
+              echo "✅ All builds completed successfully"
           
           EOF
           
-          # Append original Dockerfile but modify binary source
-          echo "# ===== ORIGINAL DOCKERFILE (MODIFIED) =====" >> server/build/Dockerfile.arm64
+          # Append original Dockerfile but modify binary source and stage names
+          echo "# ===== RUNTIME STAGE: Original Mattermost structure =====" >> server/build/Dockerfile.arm64
           
-          # Replace binary download with copy from builder
+          # Replace binary download with copy from source-builder and fix stage name conflicts
           sed 's|ubuntu:noble-[0-9]*\.[0-9]*@sha256:[a-f0-9]*|ubuntu:latest|g' server/build/Dockerfile.original | \
           sed 's|@sha256:[a-f0-9]*||g' | \
+          sed 's|AS builder|AS runtime|g' | \
           sed '/ARG MM_PACKAGE/,/tar -xzf.*mattermost/c\
           # Copy built binaries instead of downloading\
-          COPY --from=builder /mattermost-server/bin/mattermost /mattermost/bin/mattermost\
-          COPY --from=builder /mattermost-server/config /mattermost/config\
-          COPY --from=builder /mattermost-server/fonts /mattermost/fonts\
-          COPY --from=builder /mattermost-server/templates /mattermost/templates\
-          COPY --from=builder /mattermost-server/i18n /mattermost/i18n\
-          COPY --from=builder /mattermost-server/webapp/channels/dist /mattermost/client' >> server/build/Dockerfile.arm64
+          COPY --from=source-builder /mattermost-server/bin/mattermost /mattermost/bin/mattermost\
+          COPY --from=source-builder /mattermost-server/config /mattermost/config\
+          COPY --from=source-builder /mattermost-server/fonts /mattermost/fonts\
+          COPY --from=source-builder /mattermost-server/templates /mattermost/templates\
+          COPY --from=source-builder /mattermost-server/i18n /mattermost/i18n\
+          COPY --from=source-builder /mattermost-server/webapp/channels/dist /mattermost/client' >> server/build/Dockerfile.arm64
           
           # Add entrypoint copy if file exists
           if [ -f server/build/entrypoint.sh ]; then
-            sed -i '/COPY --from=builder.*\/client/a COPY server/build/entrypoint.sh /entrypoint.sh' server/build/Dockerfile.arm64
+            sed -i '/COPY --from=source-builder.*\/client/a COPY server/build/entrypoint.sh /entrypoint.sh' server/build/Dockerfile.arm64
             sed -i '/chmod +x.*mattermost/a RUN chmod +x /entrypoint.sh' server/build/Dockerfile.arm64
           fi
           
@@ -340,6 +390,8 @@ jobs:
           fi
           
           echo "✅ Created Dockerfile for ARM64 ${{ matrix.edition }}"
+          echo "📋 Dockerfile preview:"
+          head -20 server/build/Dockerfile.arm64
 
       - name: Set up Docker Buildx
         if: (matrix.edition == 'enterprise' && needs.check-and-prepare.outputs.build_enterprise == 'true') || (matrix.edition == 'team' && needs.check-and-prepare.outputs.build_team == 'true')
@@ -369,19 +421,34 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.edition }}-arm64-${{ needs.check-and-prepare.outputs.cache_key }}
           cache-to: type=gha,mode=max,scope=${{ matrix.edition }}-arm64-${{ needs.check-and-prepare.outputs.cache_key }}
 
+      - name: Check build success
+        if: failure()
+        run: |
+          echo "❌ Build failed for ${{ matrix.edition }} ARM64"
+          exit 1
+
       - name: Verify ARM64 binary
         if: (matrix.edition == 'enterprise' && needs.check-and-prepare.outputs.build_enterprise == 'true') || (matrix.edition == 'team' && needs.check-and-prepare.outputs.build_team == 'true')
         run: |
           IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-and-prepare.outputs.version }}-${{ matrix.edition }}-arm64"
           echo "🧪 Testing ARM64 binary for ${{ matrix.edition }}..."
           
+          # Check if binary exists first
+          echo "Checking if binary exists:"
+          docker run --rm "$IMAGE" test -f /mattermost/bin/mattermost && echo "✅ Binary exists" || echo "❌ Binary missing"
+          
           # Test architecture
           echo "Architecture test:"
           docker run --rm "$IMAGE" uname -m
           
-          # Test binary execution
-          echo "Binary execution test:"
-          docker run --rm "$IMAGE" /mattermost/bin/mattermost version || echo "Version check completed"
+          # Test binary execution only if binary exists
+          if docker run --rm "$IMAGE" test -f /mattermost/bin/mattermost; then
+            echo "Binary execution test:"
+            docker run --rm "$IMAGE" /mattermost/bin/mattermost version || echo "Version check completed"
+          else
+            echo "❌ Binary not found, failing build"
+            exit 1
+          fi
           
           # Verify it's ARM64
           ARCH_OUTPUT=$(docker run --rm "$IMAGE" uname -m)
@@ -478,13 +545,14 @@ jobs:
             Multi-architecture Mattermost server images combining official Dockerfile structure with source-built binaries for ARM64 compatibility.
             
             ## 🏗️ Build Method
-            - **Builder Stage**: Source compilation for native ARM64/AMD64 binaries
+            - **Source Builder Stage**: Source compilation for native ARM64/AMD64 binaries
             - **Runtime Stage**: Official Mattermost Dockerfile structure and dependencies
-            - **Native Performance**: True native binaries for each architecture
+            - **Stage Name Fix**: Resolved AS builder conflicts between stages
             
             ## 🔧 Key Features
             - **Official Structure**: Uses actual Mattermost Dockerfile for runtime environment
             - **Source-Built Binaries**: ARM64 binaries built from source to fix exec format error
+            - **Error Handling**: Build fails immediately if any step fails
             - **Full Compatibility**: All official Mattermost features and configurations
             
             ## 📥 Usage
@@ -529,6 +597,7 @@ jobs:
             - Use official Mattermost runtime environment
             - Run native binaries without exec format error
             - Maintain full compatibility with official Mattermost
+            - Fail build immediately if binary is missing
             
             ### Test Commands
             ```
@@ -544,6 +613,7 @@ jobs:
             - **Source**: Official Mattermost Dockerfile + Source-built binaries
             - **Version**: ${{ needs.check-and-prepare.outputs.version }}
             - **Build Method**: Official structure + Source compilation
+            - **Stage Names**: source-builder + runtime (conflict resolved)
             - **Cache Key**: ${{ needs.check-and-prepare.outputs.cache_key }}
             
             ---
@@ -564,6 +634,7 @@ jobs:
           echo "**Version**: ${{ needs.check-and-prepare.outputs.version }}" >> $GITHUB_STEP_SUMMARY
           echo "**Repository**: ${{ needs.check-and-prepare.outputs.repo_name }}" >> $GITHUB_STEP_SUMMARY
           echo "**Build Method**: Official Dockerfile + Source compilation" >> $GITHUB_STEP_SUMMARY
+          echo "**Stage Names**: source-builder + runtime (conflict resolved)" >> $GITHUB_STEP_SUMMARY
           echo "**AMD64 Build**: Standard ubuntu-latest runners" >> $GITHUB_STEP_SUMMARY
           echo "**ARM64 Build**: Native ubuntu-24.04-arm runners" >> $GITHUB_STEP_SUMMARY
           echo "**Cache Key**: ${{ needs.check-and-prepare.outputs.cache_key }}" >> $GITHUB_STEP_SUMMARY
@@ -611,8 +682,9 @@ jobs:
           echo "- ARM64: \`${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-team-arm64\`" >> $GITHUB_STEP_SUMMARY
           echo "- AMD64: \`${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-team-amd64\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 🚀 Build Advantages" >> $GITHUB_STEP_SUMMARY
+          echo "### 🚀 Build Improvements" >> $GITHUB_STEP_SUMMARY
+          echo "- **Stage Name Conflict Fixed**: source-builder + runtime stages prevent conflicts" >> $GITHUB_STEP_SUMMARY
+          echo "- **Error Handling**: Build fails immediately if any step fails" >> $GITHUB_STEP_SUMMARY
+          echo "- **Binary Verification**: Ensures binary exists before testing" >> $GITHUB_STEP_SUMMARY
           echo "- **Official Compatibility**: Uses actual Mattermost Dockerfile structure" >> $GITHUB_STEP_SUMMARY
           echo "- **ARM64 Fix**: Source-built binaries resolve exec format errors" >> $GITHUB_STEP_SUMMARY
-          echo "- **Native Performance**: True native binaries for each architecture" >> $GITHUB_STEP_SUMMARY
-          echo "- **Full Features**: All official Mattermost configurations included" >> $GITHUB_STEP_SUMMARY
