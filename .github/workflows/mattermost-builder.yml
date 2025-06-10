@@ -163,15 +163,15 @@ jobs:
  
                   # Team edition 설정
                   if [ "${{ matrix.edition }}" = "team" ]; then
-                    sed -i 's|mattermost-enterprise|mattermost-team|g' server/build/Dockerfile.runtime
+                    sed -i 's|mattermost-enterprise|mattermost-team|g' server/build/Dockerfile.clean
                   fi
 
                   # 최종 Dockerfile 조합 
                   echo "" >> server/build/Dockerfile.amd64
-                  cat server/build/Dockerfile.runtime >> server/build/Dockerfile.amd64
+                  cat server/build/Dockerfile.clean >> server/build/Dockerfile.amd64
  
                   # Clean up
-                  rm -f server/build/Dockerfile.original server/build/Dockerfile.clean server/build/Dockerfile.runtime server/build/source-builder-stage.dockerfile
+                  rm -f server/build/Dockerfile.original server/build/Dockerfile.clean 
 
             - name: Set up QEMU
               if: (matrix.edition == 'enterprise' && needs.check-and-prepare.outputs.build_enterprise == 'true') || (matrix.edition == 'team' && needs.check-and-prepare.outputs.build_team == 'true')
@@ -285,15 +285,15 @@ jobs:
  
                   # Team edition 설정
                   if [ "${{ matrix.edition }}" = "team" ]; then
-                    sed -i 's|mattermost-enterprise|mattermost-team|g' server/build/Dockerfile.runtime
+                    sed -i 's|mattermost-enterprise|mattermost-team|g' server/build/Dockerfile.clean
                   fi
 
                   # 최종 Dockerfile 조합 
-                  echo "" >> server/build/Dockerfile.amd64
-                  cat server/build/Dockerfile.runtime >> server/build/Dockerfile.amd64
+                  echo "" >> server/build/Dockerfile.arm64
+                  cat server/build/Dockerfile.clean >> server/build/Dockerfile.arm64
  
                   # Clean up
-                  rm -f server/build/Dockerfile.original server/build/Dockerfile.clean server/build/Dockerfile.runtime server/build/source-builder-stage.dockerfile
+                  rm -f server/build/Dockerfile.original server/build/Dockerfile.clean 
 
             - name: Set up Docker Buildx
               if: (matrix.edition == 'enterprise' && needs.check-and-prepare.outputs.build_enterprise == 'true') || (matrix.edition == 'team' && needs.check-and-prepare.outputs.build_team == 'true')
