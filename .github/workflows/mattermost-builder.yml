@@ -10,14 +10,6 @@ on:
         required: false
         default: 'latest'
         type: string
-      edition:
-        description: 'Mattermost edition'
-        required: false
-        default: 'enterprise'
-        type: choice
-        options:
-          - enterprise
-          - team
       force_rebuild:
         description: 'Force rebuild even if image exists'
         required: false
@@ -34,12 +26,11 @@ jobs:
     outputs:
       version: ${{ steps.get-version.outputs.version }}
       version_clean: ${{ steps.get-version.outputs.version_clean }}
-      should_build: ${{ steps.check-existing.outputs.should_build }}
       release_notes: ${{ steps.get-version.outputs.release_notes }}
-      edition: ${{ steps.get-version.outputs.edition }}
-      image_tag: ${{ steps.get-version.outputs.image_tag }}
+      build_enterprise: ${{ steps.check-images.outputs.build_enterprise }}
+      build_team: ${{ steps.check-images.outputs.build_team }}
     steps:
-      - name: Get target version and edition
+      - name: Get target version
         id: get-version
         run: |
           if [ "${{ github.event.inputs.version }}" = "latest" ] || [ "${{ github.event.inputs.version }}" = "" ]; then
@@ -52,52 +43,56 @@ jobs:
             RELEASE_NOTES="Manual build for version $VERSION"
           fi
           
-          EDITION="${{ github.event.inputs.edition }}"
-          if [ "$EDITION" = "" ]; then
-            EDITION="enterprise"
-          fi
-          
           VERSION_CLEAN=${VERSION#v}
-          IMAGE_TAG="${VERSION}-${EDITION}"
           
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "version_clean=$VERSION_CLEAN" >> $GITHUB_OUTPUT
-          echo "edition=$EDITION" >> $GITHUB_OUTPUT
-          echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
           echo "release_notes<<EOF" >> $GITHUB_OUTPUT
           echo "$RELEASE_NOTES" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
           
-          echo "📋 대상 버전: $VERSION ($EDITION edition)"
+          echo "📋 대상 버전: $VERSION"
 
-      - name: Check if image already exists
-        id: check-existing
+      - name: Check existing images
+        id: check-images
         run: |
-          IMAGE_TAG="${{ steps.get-version.outputs.image_tag }}"
+          VERSION="${{ steps.get-version.outputs.version }}"
           
-          echo "🔍 기존 이미지 확인 중: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$IMAGE_TAG"
+          # Enterprise 이미지 확인
+          ENTERPRISE_TAG="${VERSION}-enterprise"
+          echo "🔍 Enterprise 이미지 확인: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$ENTERPRISE_TAG"
           
-          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+          ENTERPRISE_HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
             -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            "https://ghcr.io/v2/${{ github.repository }}/mattermost/manifests/$IMAGE_TAG")
+            "https://ghcr.io/v2/${{ github.repository }}/mattermost/manifests/$ENTERPRISE_TAG")
           
-          if [ "$HTTP_CODE" = "200" ]; then
-            echo "✅ 이미지가 이미 존재합니다: $IMAGE_TAG"
-            if [ "${{ github.event.inputs.force_rebuild }}" = "true" ]; then
-              echo "🔄 강제 재빌드가 활성화되어 빌드를 진행합니다"
-              echo "should_build=true" >> $GITHUB_OUTPUT
-            else
-              echo "⏭️ 빌드를 건너뜁니다"
-              echo "should_build=false" >> $GITHUB_OUTPUT
-            fi
+          if [ "$ENTERPRISE_HTTP_CODE" = "200" ] && [ "${{ github.event.inputs.force_rebuild }}" != "true" ]; then
+            echo "⏭️ Enterprise 이미지가 이미 존재합니다: $ENTERPRISE_TAG"
+            echo "build_enterprise=false" >> $GITHUB_OUTPUT
           else
-            echo "🆕 새로운 버전 발견, 빌드를 진행합니다: $IMAGE_TAG"
-            echo "should_build=true" >> $GITHUB_OUTPUT
+            echo "🆕 Enterprise 이미지를 빌드합니다: $ENTERPRISE_TAG"
+            echo "build_enterprise=true" >> $GITHUB_OUTPUT
+          fi
+          
+          # Team 이미지 확인
+          TEAM_TAG="${VERSION}-team"
+          echo "🔍 Team 이미지 확인: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$TEAM_TAG"
+          
+          TEAM_HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "https://ghcr.io/v2/${{ github.repository }}/mattermost/manifests/$TEAM_TAG")
+          
+          if [ "$TEAM_HTTP_CODE" = "200" ] && [ "${{ github.event.inputs.force_rebuild }}" != "true" ]; then
+            echo "⏭️ Team 이미지가 이미 존재합니다: $TEAM_TAG"
+            echo "build_team=false" >> $GITHUB_OUTPUT
+          else
+            echo "🆕 Team 이미지를 빌드합니다: $TEAM_TAG"
+            echo "build_team=true" >> $GITHUB_OUTPUT
           fi
 
-  build-multiarch:
+  build-enterprise:
     needs: check-and-prepare
-    if: needs.check-and-prepare.outputs.should_build == 'true'
+    if: needs.check-and-prepare.outputs.build_enterprise == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -109,25 +104,6 @@ jobs:
           repository: mattermost/mattermost
           ref: ${{ needs.check-and-prepare.outputs.version }}
           path: mattermost-source
-
-      - name: Prepare build context
-        run: |
-          cd mattermost-source
-          
-          # Edition에 따른 MM_PACKAGE URL 설정
-          EDITION="${{ needs.check-and-prepare.outputs.edition }}"
-          if [ "$EDITION" = "team" ]; then
-            MM_PACKAGE_URL="https://latest.mattermost.com/mattermost-team-linux"
-          else
-            MM_PACKAGE_URL="https://latest.mattermost.com/mattermost-enterprise-linux"
-          fi
-          
-          echo "🔧 $EDITION edition을 위한 Dockerfile 수정 중..."
-          
-          # Dockerfile에서 MM_PACKAGE 기본값 변경
-          sed -i "s|ARG MM_PACKAGE=\"https://latest.mattermost.com/mattermost-enterprise-linux\"|ARG MM_PACKAGE=\"$MM_PACKAGE_URL\"|g" server/build/Dockerfile
-          
-          echo "📝 수정된 MM_PACKAGE: $MM_PACKAGE_URL"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -144,22 +120,20 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata
+      - name: Extract metadata for Enterprise
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=${{ needs.check-and-prepare.outputs.image_tag }}
-            type=raw,value=${{ needs.check-and-prepare.outputs.version }}-${{ needs.check-and-prepare.outputs.edition }}
-            type=raw,value=latest-${{ needs.check-and-prepare.outputs.edition }}
+            type=raw,value=${{ needs.check-and-prepare.outputs.version }}-enterprise
+            type=raw,value=latest-enterprise
           labels: |
-            org.opencontainers.image.title=Mattermost ARM64 (${{ needs.check-and-prepare.outputs.edition }})
-            org.opencontainers.image.description=Mattermost ${{ needs.check-and-prepare.outputs.edition }} server with ARM64 support
+            org.opencontainers.image.title=Mattermost ARM64 (Enterprise)
+            org.opencontainers.image.description=Mattermost Enterprise server with ARM64 support
             org.opencontainers.image.version=${{ needs.check-and-prepare.outputs.version }}
-            org.opencontainers.image.source=https://github.com/mattermost/mattermost
 
-      - name: Build and push multi-architecture image
+      - name: Build and push Enterprise edition
         uses: docker/build-push-action@v5
         with:
           context: ./mattermost-source/server/build
@@ -168,24 +142,88 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=enterprise
+          cache-to: type=gha,mode=max,scope=enterprise
 
-      - name: Verify image
+      - name: Verify Enterprise image
         run: |
-          IMAGE_TAG="${{ needs.check-and-prepare.outputs.image_tag }}"
-          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$IMAGE_TAG"
-          
-          echo "🔍 이미지 검증 중..."
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-and-prepare.outputs.version }}-enterprise"
+          echo "🔍 Enterprise 이미지 검증 중..."
           docker buildx imagetools inspect "$IMAGE"
-          
-          echo "✅ 빌드 완료!"
-          echo "📦 이미지: $IMAGE"
-          echo "🏗️ 에디션: ${{ needs.check-and-prepare.outputs.edition }}"
+          echo "✅ Enterprise 빌드 완료!"
+
+  build-team:
+    needs: check-and-prepare
+    if: needs.check-and-prepare.outputs.build_team == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout Mattermost source
+        uses: actions/checkout@v4
+        with:
+          repository: mattermost/mattermost
+          ref: ${{ needs.check-and-prepare.outputs.version }}
+          path: mattermost-source
+
+      - name: Prepare Team edition Dockerfile
+        run: |
+          cd mattermost-source
+          echo "🔧 Team edition을 위한 Dockerfile 수정 중..."
+          sed -i 's|ARG MM_PACKAGE="https://latest.mattermost.com/mattermost-enterprise-linux"|ARG MM_PACKAGE="https://latest.mattermost.com/mattermost-team-linux"|g' server/build/Dockerfile
+          echo "📝 Team edition MM_PACKAGE로 수정 완료"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64,amd64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for Team
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ needs.check-and-prepare.outputs.version }}-team
+            type=raw,value=latest-team
+          labels: |
+            org.opencontainers.image.title=Mattermost ARM64 (Team)
+            org.opencontainers.image.description=Mattermost Team server with ARM64 support
+            org.opencontainers.image.version=${{ needs.check-and-prepare.outputs.version }}
+
+      - name: Build and push Team edition
+        uses: docker/build-push-action@v5
+        with:
+          context: ./mattermost-source/server/build
+          file: ./mattermost-source/server/build/Dockerfile
+          platforms: linux/arm64,linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=team
+          cache-to: type=gha,mode=max,scope=team
+
+      - name: Verify Team image
+        run: |
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-and-prepare.outputs.version }}-team"
+          echo "🔍 Team 이미지 검증 중..."
+          docker buildx imagetools inspect "$IMAGE"
+          echo "✅ Team 빌드 완료!"
 
   create-release:
-    needs: [check-and-prepare, build-multiarch]
-    if: needs.check-and-prepare.outputs.should_build == 'true' && needs.build-multiarch.result == 'success'
+    needs: [check-and-prepare, build-enterprise, build-team]
+    if: always() && (needs.build-enterprise.result == 'success' || needs.build-team.result == 'success')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -193,41 +231,39 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ needs.check-and-prepare.outputs.image_tag }}
-          name: "Mattermost ARM64 ${{ needs.check-and-prepare.outputs.version }} (${{ needs.check-and-prepare.outputs.edition }})"
+          tag_name: ${{ needs.check-and-prepare.outputs.version }}
+          name: "Mattermost ARM64 ${{ needs.check-and-prepare.outputs.version }}"
           body: |
             # 🚀 Mattermost ARM64 빌드 ${{ needs.check-and-prepare.outputs.version }}
-            
-            **에디션**: ${{ needs.check-and-prepare.outputs.edition }} edition
             
             ARM64 및 AMD64 아키텍처를 지원하는 Mattermost 서버 이미지입니다.
             
             ## 📥 사용 방법
             
-            ### Docker 실행
+            ### Enterprise Edition
             ```
             docker run -d \
-              --name mattermost-${{ needs.check-and-prepare.outputs.edition }} \
+              --name mattermost-enterprise \
               -p 8065:8065 \
-              ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-and-prepare.outputs.image_tag }}
+              ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-and-prepare.outputs.version }}-enterprise
             ```
             
-            ### Docker Compose
+            ### Team Edition
             ```
-            services:
-              mattermost:
-                image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-and-prepare.outputs.image_tag }}
-                ports:
-                  - "8065:8065"
+            docker run -d \
+              --name mattermost-team \
+              -p 8065:8065 \
+              ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-and-prepare.outputs.version }}-team
             ```
             
             ## 🏗️ 지원 아키텍처
-            - `linux/arm64` - ARM64 프로세서
+            - `linux/arm64` - ARM64 프로세서 (Apple Silicon, Raspberry Pi 등)
             - `linux/amd64` - x86_64 프로세서
             
-            ## 📋 에디션별 차이점
-            - **Enterprise**: 모든 기능 포함 (상용 라이선스)
-            - **Team**: 기본 기능만 포함 (오픈소스)
+            ## 📦 빌드된 이미지
+            ${{ needs.build-enterprise.result == 'success' && '✅ **Enterprise**: `ghcr.io/your-repo/mattermost:latest-enterprise`' || '⏭️ **Enterprise**: 기존 이미지 사용' }}
+            
+            ${{ needs.build-team.result == 'success' && '✅ **Team**: `ghcr.io/your-repo/mattermost:latest-team`' || '⏭️ **Team**: 기존 이미지 사용' }}
             
             ---
             **원본**: [mattermost/mattermost](https://github.com/mattermost/mattermost/releases/tag/${{ needs.check-and-prepare.outputs.version }})
@@ -236,7 +272,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-summary:
-    needs: [check-and-prepare, build-multiarch, create-release]
+    needs: [check-and-prepare, build-enterprise, build-team, create-release]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -244,17 +280,32 @@ jobs:
         run: |
           echo "## 🏗️ Mattermost ARM64 빌드 결과" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**버전**: ${{ needs.check-and-prepare.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
           
-          if [ "${{ needs.check-and-prepare.outputs.should_build }}" = "false" ]; then
-            echo "⏭️ **건너뜀**: 버전 ${{ needs.check-and-prepare.outputs.image_tag }}이 이미 존재합니다." >> $GITHUB_STEP_SUMMARY
-          elif [ "${{ needs.build-multiarch.result }}" = "success" ]; then
-            echo "✅ **성공**: ${{ needs.check-and-prepare.outputs.edition }} edition 빌드 완료!" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "📦 **이미지**: \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-and-prepare.outputs.image_tag }}\`" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "🏗️ **지원 플랫폼**: linux/arm64, linux/amd64" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "📋 **에디션**: ${{ needs.check-and-prepare.outputs.edition }}" >> $GITHUB_STEP_SUMMARY
+          # Enterprise 결과
+          if [ "${{ needs.check-and-prepare.outputs.build_enterprise }}" = "true" ]; then
+            if [ "${{ needs.build-enterprise.result }}" = "success" ]; then
+              echo "✅ **Enterprise**: 빌드 성공" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "❌ **Enterprise**: 빌드 실패" >> $GITHUB_STEP_SUMMARY
+            fi
           else
-            echo "❌ **실패**: 빌드 중 오류가 발생했습니다." >> $GITHUB_STEP_SUMMARY
+            echo "⏭️ **Enterprise**: 기존 이미지 사용" >> $GITHUB_STEP_SUMMARY
           fi
+          
+          # Team 결과
+          if [ "${{ needs.check-and-prepare.outputs.build_team }}" = "true" ]; then
+            if [ "${{ needs.build-team.result }}" = "success" ]; then
+              echo "✅ **Team**: 빌드 성공" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "❌ **Team**: 빌드 실패" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "⏭️ **Team**: 기존 이미지 사용" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 이미지 주소" >> $GITHUB_STEP_SUMMARY
+          echo "- **Enterprise**: \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-and-prepare.outputs.version }}-enterprise\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Team**: \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-and-prepare.outputs.version }}-team\`" >> $GITHUB_STEP_SUMMARY
