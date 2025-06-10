@@ -200,10 +200,9 @@ jobs:
           # Append original Dockerfile but modify binary source and stage names
           echo "# ===== RUNTIME STAGE: Original Mattermost structure =====" >> server/build/Dockerfile.amd64
           
-          # Replace binary download with copy from source-builder and fix stage name conflicts
+          # Replace binary download with copy from source-builder (keep original AS builder)
           sed 's|ubuntu:noble-[0-9]*\.[0-9]*@sha256:[a-f0-9]*|ubuntu:latest|g' server/build/Dockerfile.original | \
           sed 's|@sha256:[a-f0-9]*||g' | \
-          sed 's|AS builder|AS runtime|g' | \
           sed '/ARG MM_PACKAGE/,/tar -xzf.*mattermost/c\
           # Copy built binaries instead of downloading\
           COPY --from=source-builder /mattermost-server/bin/mattermost /mattermost/bin/mattermost\
@@ -375,10 +374,9 @@ jobs:
           # Append original Dockerfile but modify binary source and stage names
           echo "# ===== RUNTIME STAGE: Original Mattermost structure =====" >> server/build/Dockerfile.arm64
           
-          # Replace binary download with copy from source-builder and fix stage name conflicts
+          # Replace binary download with copy from source-builder (keep original AS builder)
           sed 's|ubuntu:noble-[0-9]*\.[0-9]*@sha256:[a-f0-9]*|ubuntu:latest|g' server/build/Dockerfile.original | \
           sed 's|@sha256:[a-f0-9]*||g' | \
-          sed 's|AS builder|AS runtime|g' | \
           sed '/ARG MM_PACKAGE/,/tar -xzf.*mattermost/c\
           # Copy built binaries instead of downloading\
           COPY --from=source-builder /mattermost-server/bin/mattermost /mattermost/bin/mattermost\
@@ -387,6 +385,7 @@ jobs:
           COPY --from=source-builder /mattermost-server/templates /mattermost/templates\
           COPY --from=source-builder /mattermost-server/i18n /mattermost/i18n\
           COPY --from=source-builder /mattermost-server/webapp/channels/dist /mattermost/client' >> server/build/Dockerfile.arm64
+
           
           # Add entrypoint copy if file exists
           if [ -f server/build/entrypoint.sh ]; then
@@ -401,7 +400,7 @@ jobs:
           
           echo "✅ Created Dockerfile for ARM64 ${{ matrix.edition }}"
           echo "📋 Dockerfile preview:"
-          head -100 server/build/Dockerfile.arm64
+          head -200 server/build/Dockerfile.arm64
 
 
       - name: Set up Docker Buildx
