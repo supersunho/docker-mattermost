@@ -155,9 +155,7 @@ jobs:
                     echo "❌ entrypoint.sh file not found after download"
                     exit 1
                   fi  
-
-                  sed -i 's/ARG PUID=2000/ARG PUID=1000/g' server/build/Dockerfile.original 
-                  sed -i 's/ARG PGID=2000/ARG PGID=1000/g' server/build/Dockerfile.original 
+ 
                   RELEASE_URL="https://releases.mattermost.com/${{ needs.check-and-prepare.outputs.version_clean }}/mattermost-team-${{ needs.check-and-prepare.outputs.version_clean }}-linux-amd64.tar.gz"
                   echo "RELEASE URL: $RELEASE_URL"
                   sed -i "s|ARG MM_PACKAGE=\"[^\"]*\"|ARG MM_PACKAGE=\"${RELEASE_URL}\"|g" server/build/Dockerfile.original 
@@ -244,7 +242,7 @@ jobs:
                     echo "❌ Binary is not AMD64: $ARCH_OUTPUT"
                     exit 1
                   fi
-                  
+
             - name: Export digest
               if: (matrix.edition == 'enterprise' && needs.check-and-prepare.outputs.build_enterprise == 'true') || (matrix.edition == 'team' && needs.check-and-prepare.outputs.build_team == 'true')
               run: |
@@ -311,9 +309,7 @@ jobs:
                     echo "❌ entrypoint.sh file not found after download"
                     exit 1
                   fi
-
-                  sed -i 's/ARG PUID=2000/ARG PUID=1000/g' server/build/Dockerfile.original 
-                  sed -i 's/ARG PGID=2000/ARG PGID=1000/g' server/build/Dockerfile.original 
+ 
                   RELEASE_URL="https://releases.mattermost.com/${{ needs.check-and-prepare.outputs.version_clean }}/mattermost-team-${{ needs.check-and-prepare.outputs.version_clean }}-linux-arm64.tar.gz"
                   echo "RELEASE URL: $RELEASE_URL"
                   sed -i "s|ARG MM_PACKAGE=\"[^\"]*\"|ARG MM_PACKAGE=\"${RELEASE_URL}\"|g" server/build/Dockerfile.original 
