@@ -117,11 +117,18 @@ jobs:
         run: |
           cd mattermost-source
           echo "🔧 Fixing Dockerfile for multi-arch compatibility..."
-          # Remove SHA256 hash to allow multi-arch base image selection
-          sed -i 's|ubuntu:noble-20250415.1@sha256:[a-f0-9]*|ubuntu:noble-20250415.1|g' server/build/Dockerfile
+          
+          # Replace specific Ubuntu version with latest
+          sed -i 's|ubuntu:noble-[0-9]*\.[0-9]*|ubuntu:latest|g' server/build/Dockerfile
+          
+          # Remove any SHA256 hashes to allow multi-arch base image selection
+          sed -i 's|ubuntu:latest@sha256:[a-f0-9]*|ubuntu:latest|g' server/build/Dockerfile
+          sed -i 's|ubuntu:noble-[0-9]*\.[0-9]*@sha256:[a-f0-9]*|ubuntu:latest|g' server/build/Dockerfile
+          
           # Also handle any other potential SHA256 hashes
           sed -i 's|@sha256:[a-f0-9]*||g' server/build/Dockerfile
-          echo "📝 Removed SHA256 hashes for multi-arch support"
+          
+          echo "📝 Updated to use ubuntu:latest for multi-arch support"
           
           # Verify the change
           echo "📋 Updated Dockerfile base images:"
@@ -197,11 +204,18 @@ jobs:
         run: |
           cd mattermost-source
           echo "🔧 Fixing Dockerfile for multi-arch compatibility..."
-          # Remove SHA256 hash to allow multi-arch base image selection
-          sed -i 's|ubuntu:noble-20250415.1@sha256:[a-f0-9]*|ubuntu:noble-20250415.1|g' server/build/Dockerfile
+          
+          # Replace specific Ubuntu version with latest
+          sed -i 's|ubuntu:noble-[0-9]*\.[0-9]*|ubuntu:latest|g' server/build/Dockerfile
+          
+          # Remove any SHA256 hashes to allow multi-arch base image selection
+          sed -i 's|ubuntu:latest@sha256:[a-f0-9]*|ubuntu:latest|g' server/build/Dockerfile
+          sed -i 's|ubuntu:noble-[0-9]*\.[0-9]*@sha256:[a-f0-9]*|ubuntu:latest|g' server/build/Dockerfile
+          
           # Also handle any other potential SHA256 hashes
           sed -i 's|@sha256:[a-f0-9]*||g' server/build/Dockerfile
-          echo "📝 Removed SHA256 hashes for multi-arch support"
+          
+          echo "📝 Updated to use ubuntu:latest for multi-arch support"
           
           echo "🔧 Modifying for Team edition..."
           # Change to Team edition package
@@ -280,14 +294,15 @@ jobs:
           body: |
             # 🚀 Mattermost Multi-Architecture Build ${{ needs.check-and-prepare.outputs.version }}
             
-            Multi-architecture Mattermost server images with SHA256 hash compatibility fixes.
+            Multi-architecture Mattermost server images with Ubuntu latest base and compatibility fixes.
             
             ## 🏗️ Supported Architectures
             - **AMD64** (x86_64) - Standard servers and desktop environments
             - **ARM64** (AArch64) - Apple Silicon, AWS Graviton, Raspberry Pi 4+, etc.
             
             ## 🔧 Build Improvements
-            - **Fixed SHA256 Hash Issues**: Removed architecture-specific SHA256 hashes from base images
+            - **Ubuntu Latest Base**: Updated to use ubuntu:latest for better compatibility
+            - **SHA256 Hash Fix**: Removed architecture-specific hashes from base images
             - **QEMU Cross-Compilation**: Built using QEMU for reliable multi-arch support
             - **Enhanced Compatibility**: Improved ARM64 compatibility and reduced exec format errors
             
@@ -351,7 +366,8 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Version**: ${{ needs.check-and-prepare.outputs.version }}" >> $GITHUB_STEP_SUMMARY
           echo "**Repository**: ${{ needs.check-and-prepare.outputs.repo_name }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Build Method**: QEMU Cross-Compilation with SHA256 Hash Fix" >> $GITHUB_STEP_SUMMARY
+          echo "**Base Image**: Ubuntu Latest (Multi-Arch)" >> $GITHUB_STEP_SUMMARY
+          echo "**Build Method**: QEMU Cross-Compilation with Ubuntu Latest" >> $GITHUB_STEP_SUMMARY
           echo "**Supported Architectures**: AMD64 (x86_64), ARM64 (AArch64)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
@@ -390,6 +406,6 @@ jobs:
           echo "- AMD64: \`${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-team-amd64\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 🔧 Build Improvements" >> $GITHUB_STEP_SUMMARY
+          echo "- **Ubuntu Latest**: Updated base image to ubuntu:latest for better compatibility" >> $GITHUB_STEP_SUMMARY
           echo "- **SHA256 Hash Fix**: Removed architecture-specific hashes from base images" >> $GITHUB_STEP_SUMMARY
           echo "- **Multi-Arch Support**: QEMU-based cross-compilation for ARM64 compatibility" >> $GITHUB_STEP_SUMMARY
-          echo "- **Enhanced Compatibility**: Improved exec format error handling" >> $GITHUB_STEP_SUMMARY
