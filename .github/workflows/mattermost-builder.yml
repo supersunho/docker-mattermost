@@ -223,7 +223,9 @@ jobs:
             sed -i 's|mattermost-enterprise-linux|mattermost-team-linux|g' server/build/Dockerfile.amd64
           fi
           
-          echo "✅ Created Dockerfile for AMD64 ${{ matrix.edition }}"
+          echo "✅ Created Dockerfile for AMD64 ${{ matrix.edition }}" 
+          echo "📋 Dockerfile preview:"
+          cat server/build/Dockerfile.amd64 
 
       - name: Set up QEMU
         if: (matrix.edition == 'enterprise' && needs.check-and-prepare.outputs.build_enterprise == 'true') || (matrix.edition == 'team' && needs.check-and-prepare.outputs.build_team == 'true')
@@ -400,7 +402,7 @@ jobs:
           
           echo "✅ Created Dockerfile for ARM64 ${{ matrix.edition }}"
           echo "📋 Dockerfile preview:"
-          head -200 server/build/Dockerfile.arm64
+          cat server/build/Dockerfile.arm64 
 
 
       - name: Set up Docker Buildx
