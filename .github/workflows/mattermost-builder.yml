@@ -135,11 +135,14 @@ jobs:
           cd mattermost-source
           echo "📥 Downloading official Dockerfile..."
           
-          # Download original Dockerfile
-          wget https://raw.githubusercontent.com/mattermost/mattermost/${{ needs.check-and-prepare.outputs.version }}/server/build/Dockerfile -O server/build/Dockerfile.original
+          # Download original Dockerfile with error checking
+          if ! wget https://raw.githubusercontent.com/mattermost/mattermost/${{ needs.check-and-prepare.outputs.version }}/server/build/Dockerfile -O server/build/Dockerfile.original; then
+            echo "❌ Failed to download Dockerfile"
+            exit 1
+          fi
           
-          # Create source-builder stage (COPY 명령어 제거)
-          cat > server/build/source-builder.txt << 'EOF'
+          # Create source-builder stage in separate file
+          cat > server/build/source-builder-stage.dockerfile << 'BUILDER_EOF'
           FROM golang:1.21-alpine AS source-builder
           
           WORKDIR /mattermost-server
@@ -187,36 +190,76 @@ jobs:
               ls -la /mattermost-server/bin/mattermost && \
               echo "✅ All builds completed successfully"
           
-          EOF
-              
-          # Fix original Dockerfile first
-          sed 's|^FROM ubuntu:.*|FROM ubuntu:latest AS builder|' server/build/Dockerfile.original > server/build/Dockerfile.fixed
+          BUILDER_EOF
           
-          # Replace download section with COPY commands
-          sed '/ARG MM_PACKAGE/,/tar.*mattermost/c\
+          # Verify source-builder stage was created correctly
+          if [ ! -f server/build/source-builder-stage.dockerfile ]; then
+            echo "❌ Failed to create source-builder stage"
+            exit 1
+          fi
+          
+          # Create modified runtime stage
+          echo "🔧 Modifying original Dockerfile..."
+          
+          # Step 1: Fix base image references
+          sed 's|ubuntu:noble-[0-9]*\.[0-9]*@sha256:[a-f0-9]*|ubuntu:latest|g' server/build/Dockerfile.original > server/build/Dockerfile.step1
+          
+          # Step 2: Remove SHA256 references
+          sed 's|@sha256:[a-f0-9]*||g' server/build/Dockerfile.step1 > server/build/Dockerfile.step2
+          
+          # Step 3: Replace download section with COPY commands
+          sed '/ARG MM_PACKAGE/,/tar.*mattermost.*tar.gz/c\
           # Copy built binaries instead of downloading\
           COPY --from=source-builder /mattermost-server/bin/mattermost /mattermost/bin/mattermost\
           COPY --from=source-builder /mattermost-server/config /mattermost/config\
           COPY --from=source-builder /mattermost-server/fonts /mattermost/fonts\
           COPY --from=source-builder /mattermost-server/templates /mattermost/templates\
           COPY --from=source-builder /mattermost-server/i18n /mattermost/i18n\
-          COPY --from=source-builder /mattermost-server/webapp/channels/dist /mattermost/client' server/build/Dockerfile.fixed > server/build/Dockerfile.modified
-              
-          # Combine: source-builder + modified original
-          cat server/build/source-builder.txt > server/build/Dockerfile.amd64
-          cat server/build/Dockerfile.modified >> server/build/Dockerfile.amd64
+          COPY --from=source-builder /mattermost-server/webapp/channels/dist /mattermost/client' server/build/Dockerfile.step2 > server/build/Dockerfile.runtime
           
           # Set Team edition if needed
           if [ "${{ matrix.edition }}" = "team" ]; then
-            sed -i 's|mattermost-enterprise-linux|mattermost-team-linux|g' server/build/Dockerfile.amd64
+            sed -i 's|mattermost-enterprise-linux|mattermost-team-linux|g' server/build/Dockerfile.runtime
           fi
           
-          # Clean up
-          rm server/build/source-builder.txt server/build/Dockerfile.fixed server/build/Dockerfile.modified
+          # Combine source-builder + runtime stages
+          echo "🔗 Combining stages..."
+          cat server/build/source-builder-stage.dockerfile > server/build/Dockerfile.amd64
+          echo "" >> server/build/Dockerfile.amd64
+          cat server/build/Dockerfile.runtime >> server/build/Dockerfile.amd64
+          
+          # Verify final Dockerfile
+          if [ ! -f server/build/Dockerfile.amd64 ]; then
+            echo "❌ Failed to create final Dockerfile"
+            exit 1
+          fi
+          
+          # Check if Dockerfile has both stages
+          if ! grep -q "FROM golang:1.21-alpine AS source-builder" server/build/Dockerfile.amd64; then
+            echo "❌ Source-builder stage missing"
+            exit 1
+          fi
+          
+          if ! grep -q "FROM ubuntu:latest" server/build/Dockerfile.amd64; then
+            echo "❌ Runtime stage missing"
+            exit 1
+          fi
+          
+          # Clean up temporary files
+          rm -f server/build/Dockerfile.original server/build/Dockerfile.step1 server/build/Dockerfile.step2 server/build/Dockerfile.runtime server/build/source-builder-stage.dockerfile
           
           echo "✅ Created Dockerfile for AMD64 ${{ matrix.edition }}"
-          echo "📋 Complete Dockerfile:"
-          cat server/build/Dockerfile.amd64
+          echo "📋 Dockerfile verification:"
+          echo "- Lines: $(wc -l < server/build/Dockerfile.amd64)"
+          echo "- Source stage: $(grep -c 'source-builder' server/build/Dockerfile.amd64)"
+          echo "- Runtime stage: $(grep -c 'FROM ubuntu' server/build/Dockerfile.amd64)"
+          
+          # Show first and last few lines for verification
+          echo "📋 First 10 lines:"
+          head -10 server/build/Dockerfile.amd64
+          echo "📋 Last 10 lines:"
+          tail -10 server/build/Dockerfile.amd64
+
  
 
       - name: Set up QEMU
