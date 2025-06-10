@@ -177,7 +177,7 @@ jobs:
   build-arm64:
     needs: check-and-prepare
     if: needs.check-and-prepare.outputs.build_enterprise == 'true' || needs.check-and-prepare.outputs.build_team == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     permissions:
       contents: read
       packages: write
@@ -204,12 +204,7 @@ jobs:
           echo "🔧 Modifying Dockerfile for Team edition..."
           sed -i 's|ARG MM_PACKAGE="https://latest.mattermost.com/mattermost-enterprise-linux"|ARG MM_PACKAGE="https://latest.mattermost.com/mattermost-team-linux"|g' server/build/Dockerfile
           echo "📝 Modified MM_PACKAGE for Team edition"
-
-      - name: Set up QEMU
-        if: (matrix.edition == 'enterprise' && needs.check-and-prepare.outputs.build_enterprise == 'true') || (matrix.edition == 'team' && needs.check-and-prepare.outputs.build_team == 'true')
-        uses: docker/setup-qemu-action@v3
-        with:
-          platforms: arm64
+ 
 
       - name: Set up Docker Buildx
         if: (matrix.edition == 'enterprise' && needs.check-and-prepare.outputs.build_enterprise == 'true') || (matrix.edition == 'team' && needs.check-and-prepare.outputs.build_team == 'true')
@@ -237,6 +232,13 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-${{ matrix.edition }}-arm64
           cache-from: type=gha,scope=${{ matrix.edition }}-arm64
           cache-to: type=gha,mode=max,scope=${{ matrix.edition }}-arm64
+
+      - name: Verify ARM64 architecture
+        if: (matrix.edition == 'enterprise' && needs.check-and-prepare.outputs.build_enterprise == 'true') || (matrix.edition == 'team' && needs.check-and-prepare.outputs.build_team == 'true')
+        run: |
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-and-prepare.outputs.version }}-${{ matrix.edition }}-arm64"
+          echo "🔍 Verifying ARM64 architecture..."
+          docker buildx imagetools inspect "$IMAGE"
 
       - name: Export digest
         if: (matrix.edition == 'enterprise' && needs.check-and-prepare.outputs.build_enterprise == 'true') || (matrix.edition == 'team' && needs.check-and-prepare.outputs.build_team == 'true')
@@ -323,7 +325,7 @@ jobs:
             
             ## 🏗️ Supported Architectures
             - **AMD64** (x86_64) - Native build on AMD64 runners
-            - **ARM64** (AArch64) - Native build with QEMU emulation
+            - **ARM64** (AArch64) - Native build on ARM64 runners
             
             ## 📥 Usage
             
@@ -366,3 +368,55 @@ jobs:
           draft: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-summary:
+    needs: [check-and-prepare, build-amd64, build-arm64, merge-manifests, create-release]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Build Summary
+        run: |
+          echo "## 🏗️ Mattermost Multi-Architecture Build Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version**: ${{ needs.check-and-prepare.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Repository**: ${{ needs.check-and-prepare.outputs.repo_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Supported Architectures**: AMD64 (x86_64), ARM64 (AArch64)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Enterprise results
+          if [ "${{ needs.check-and-prepare.outputs.build_enterprise }}" = "true" ]; then
+            if [ "${{ needs.build-amd64.result }}" = "success" ] && [ "${{ needs.build-arm64.result }}" = "success" ]; then
+              echo "✅ **Enterprise Edition**: Multi-arch build successful" >> $GITHUB_STEP_SUMMARY
+            elif [ "${{ needs.build-amd64.result }}" = "success" ] || [ "${{ needs.build-arm64.result }}" = "success" ]; then
+              echo "⚠️ **Enterprise Edition**: Partial build success" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "❌ **Enterprise Edition**: Build failed" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "⏭️ **Enterprise Edition**: Using existing image (build skipped)" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          # Team results
+          if [ "${{ needs.check-and-prepare.outputs.build_team }}" = "true" ]; then
+            if [ "${{ needs.build-amd64.result }}" = "success" ] && [ "${{ needs.build-arm64.result }}" = "success" ]; then
+              echo "✅ **Team Edition**: Multi-arch build successful" >> $GITHUB_STEP_SUMMARY
+            elif [ "${{ needs.build-amd64.result }}" = "success" ] || [ "${{ needs.build-arm64.result }}" = "success" ]; then
+              echo "⚠️ **Team Edition**: Partial build success" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "❌ **Team Edition**: Build failed" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "⏭️ **Team Edition**: Using existing image (build skipped)" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 Available Tags" >> $GITHUB_STEP_SUMMARY
+          echo "#### Enterprise Edition" >> $GITHUB_STEP_SUMMARY
+          echo "- Multi-arch: \`${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-enterprise\`" >> $GITHUB_STEP_SUMMARY
+          echo "- ARM64: \`${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-enterprise-arm64\`" >> $GITHUB_STEP_SUMMARY
+          echo "- AMD64: \`${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-enterprise-amd64\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "#### Team Edition" >> $GITHUB_STEP_SUMMARY
+          echo "- Multi-arch: \`${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-team\`" >> $GITHUB_STEP_SUMMARY
+          echo "- ARM64: \`${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-team-arm64\`" >> $GITHUB_STEP_SUMMARY
+          echo "- AMD64: \`${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-team-amd64\`" >> $GITHUB_STEP_SUMMARY
