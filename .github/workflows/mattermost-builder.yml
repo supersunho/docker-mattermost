@@ -418,8 +418,8 @@ jobs:
           # Create modified runtime stage for ARM64
           echo "🔧 Modifying original Dockerfile for ARM64..."
           
-          # Step 1: Fix base image references to ARM64 compatible
-          sed 's|ubuntu:noble-[0-9]*\.[0-9]*@sha256:[a-f0-9]*|ubuntu:latest|g' server/build/Dockerfile.original > server/build/Dockerfile.step1
+          # Step 1: Fix base image references
+          sed 's|^FROM ubuntu:.*|FROM ubuntu:latest AS builder|' server/build/Dockerfile.original > server/build/Dockerfile.step1 
           
           # Step 2: Remove SHA256 references
           sed 's|@sha256:[a-f0-9]*||g' server/build/Dockerfile.step1 > server/build/Dockerfile.step2
