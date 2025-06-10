@@ -135,7 +135,11 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=${{ needs.check-and-prepare.outputs.version }}-enterprise
+            type=raw,value=${{ needs.check-and-prepare.outputs.version }}-enterprise-amd64
+            type=raw,value=${{ needs.check-and-prepare.outputs.version }}-enterprise-arm64
             type=raw,value=latest-enterprise
+            type=raw,value=latest-enterprise-amd64
+            type=raw,value=latest-enterprise-arm64
           labels: |
             org.opencontainers.image.title=Mattermost Multi-Arch (Enterprise)
             org.opencontainers.image.description=Mattermost Enterprise server with multi-architecture support (AMD64, ARM64)
@@ -204,7 +208,11 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=${{ needs.check-and-prepare.outputs.version }}-team
+            type=raw,value=${{ needs.check-and-prepare.outputs.version }}-team-amd64
+            type=raw,value=${{ needs.check-and-prepare.outputs.version }}-team-arm64
             type=raw,value=latest-team
+            type=raw,value=latest-team-amd64
+            type=raw,value=latest-team-arm64
           labels: |
             org.opencontainers.image.title=Mattermost Multi-Arch (Team)
             org.opencontainers.image.description=Mattermost Team server with multi-architecture support (AMD64, ARM64)
@@ -254,55 +262,51 @@ jobs:
             
             ### Enterprise Edition
             ```
-            # Docker run
-            docker run -d \
-              --name mattermost-enterprise \
-              -p 8065:8065 \
+            # Multi-arch (automatic platform selection)
+            docker run -d --name mattermost-enterprise -p 8065:8065 \
               ${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-enterprise
             
-            # Docker Compose
-            services:
-              mattermost:
-                image: ${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-enterprise
-                ports:
-                  - "8065:8065"
+            # Specific architecture
+            docker run -d --name mattermost-enterprise-arm64 -p 8065:8065 \
+              ${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-enterprise-arm64
+            
+            docker run -d --name mattermost-enterprise-amd64 -p 8065:8065 \
+              ${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-enterprise-amd64
             ```
             
             ### Team Edition
             ```
-            # Docker run
-            docker run -d \
-              --name mattermost-team \
-              -p 8065:8065 \
+            # Multi-arch (automatic platform selection)
+            docker run -d --name mattermost-team -p 8065:8065 \
               ${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-team
             
-            # Docker Compose
-            services:
-              mattermost:
-                image: ${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-team
-                ports:
-                  - "8065:8065"
+            # Specific architecture
+            docker run -d --name mattermost-team-arm64 -p 8065:8065 \
+              ${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-team-arm64
+            
+            docker run -d --name mattermost-team-amd64 -p 8065:8065 \
+              ${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-team-amd64
             ```
             
-            ## 📦 Build Results
-            ${{ needs.build-enterprise.result == 'success' && format('✅ **Enterprise Edition**: `{0}:{1}-enterprise`', needs.check-and-prepare.outputs.registry_url, needs.check-and-prepare.outputs.version) || '⏭️ **Enterprise Edition**: Using existing image' }}
+            ## 📦 Available Images
             
-            ${{ needs.build-team.result == 'success' && format('✅ **Team Edition**: `{0}:{1}-team`', needs.check-and-prepare.outputs.registry_url, needs.check-and-prepare.outputs.version) || '⏭️ **Team Edition**: Using existing image' }}
+            ### Enterprise Edition
+            - Multi-arch: `${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-enterprise`
+            - ARM64 specific: `${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-enterprise-arm64`
+            - AMD64 specific: `${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-enterprise-amd64`
             
-            ## 📋 Edition Differences
-            - **Enterprise**: Full feature set (commercial license required)
-            - **Team**: Core features only (fully open source)
+            ### Team Edition
+            - Multi-arch: `${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-team`
+            - ARM64 specific: `${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-team-arm64`
+            - AMD64 specific: `${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-team-amd64`
             
-            ## 🔗 Available Images
-            - **Enterprise**: `${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-enterprise`
-            - **Team**: `${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-team`
-            - **Latest Enterprise**: `${{ needs.check-and-prepare.outputs.registry_url }}:latest-enterprise`
-            - **Latest Team**: `${{ needs.check-and-prepare.outputs.registry_url }}:latest-team`
+            ## 📋 Build Results
+            ${{ needs.build-enterprise.result == 'success' && format('✅ **Enterprise Edition**: Multi-arch build successful') || '⏭️ **Enterprise Edition**: Using existing image' }}
+            
+            ${{ needs.build-team.result == 'success' && format('✅ **Team Edition**: Multi-arch build successful') || '⏭️ **Team Edition**: Using existing image' }}
             
             ---
             **Source Repository**: [mattermost/mattermost](https://github.com/mattermost/mattermost/releases/tag/${{ needs.check-and-prepare.outputs.version }})
-            
-            **Build Environment**: GitHub Actions Multi-Architecture Build
           draft: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -344,10 +348,13 @@ jobs:
           fi
           
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 📦 Image URLs" >> $GITHUB_STEP_SUMMARY
-          echo "- **Enterprise**: \`${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-enterprise\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Team**: \`${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-team\`" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 Available Tags" >> $GITHUB_STEP_SUMMARY
+          echo "#### Enterprise Edition" >> $GITHUB_STEP_SUMMARY
+          echo "- Multi-arch: \`${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-enterprise\`" >> $GITHUB_STEP_SUMMARY
+          echo "- ARM64: \`${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-enterprise-arm64\`" >> $GITHUB_STEP_SUMMARY
+          echo "- AMD64: \`${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-enterprise-amd64\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 🌐 Platform Compatibility" >> $GITHUB_STEP_SUMMARY
-          echo "- **AMD64**: Intel/AMD processors (standard servers, PCs)" >> $GITHUB_STEP_SUMMARY
-          echo "- **ARM64**: ARM processors (Apple Silicon, AWS Graviton, Raspberry Pi)" >> $GITHUB_STEP_SUMMARY
+          echo "#### Team Edition" >> $GITHUB_STEP_SUMMARY
+          echo "- Multi-arch: \`${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-team\`" >> $GITHUB_STEP_SUMMARY
+          echo "- ARM64: \`${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-team-arm64\`" >> $GITHUB_STEP_SUMMARY
+          echo "- AMD64: \`${{ needs.check-and-prepare.outputs.registry_url }}:${{ needs.check-and-prepare.outputs.version }}-team-amd64\`" >> $GITHUB_STEP_SUMMARY
