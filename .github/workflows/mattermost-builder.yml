@@ -140,6 +140,8 @@ jobs:
             echo "❌ Failed to download Dockerfile"
             exit 1
           fi
+
+          wget https://raw.githubusercontent.com/mattermost/mattermost/${{ needs.check-and-prepare.outputs.version }}/server/build/entrypoint.sh -O server/build/entrypoint.sh
           
           # Create source-builder stage
           cat > server/build/source-builder-stage.dockerfile << 'BUILDER_EOF'
@@ -287,6 +289,8 @@ jobs:
             echo "❌ Failed to download Dockerfile"
             exit 1
           fi
+
+          wget https://raw.githubusercontent.com/mattermost/mattermost/${{ needs.check-and-prepare.outputs.version }}/server/build/entrypoint.sh -O server/build/entrypoint.sh
           
           # Create source-builder stage for ARM64
           cat > server/build/source-builder-stage.dockerfile << 'BUILDER_EOF'
