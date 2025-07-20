@@ -160,8 +160,7 @@ jobs:
                   echo "RELEASE URL: $RELEASE_URL"
                   sed -i "s|ARG MM_PACKAGE=\"[^\"]*\"|ARG MM_PACKAGE=\"${RELEASE_URL}\"|g" server/build/Dockerfile.original 
                   sed -i 's/COPY  passwd \/etc\/passwd/COPY  server\/build\/passwd \/etc\/passwd/' server/build/Dockerfile.original 
-                  # sed 's|^FROM ubuntu:.*|FROM ubuntu:latest AS builder|' server/build/Dockerfile.original > server/build/Dockerfile.clean
-                  cat server/build/Dockerfile.original >> server/build/Dockerfile.clean
+                  sed 's|^FROM ubuntu:.*|FROM ubuntu:latest AS builder|' server/build/Dockerfile.original > server/build/Dockerfile.clean
 
                   # Team edition configuration
                   if [ "${{ matrix.edition }}" = "team" ]; then
@@ -316,8 +315,7 @@ jobs:
                   echo "RELEASE URL: $RELEASE_URL"
                   sed -i "s|ARG MM_PACKAGE=\"[^\"]*\"|ARG MM_PACKAGE=\"${RELEASE_URL}\"|g" server/build/Dockerfile.original 
                   sed -i 's/COPY  passwd \/etc\/passwd/COPY  server\/build\/passwd \/etc\/passwd/' server/build/Dockerfile.original 
-                  # sed 's|^FROM ubuntu:.*|FROM ubuntu:latest AS builder|' server/build/Dockerfile.original > server/build/Dockerfile.clean
-                  cat server/build/Dockerfile.original >> server/build/Dockerfile.clean
+                  sed 's|^FROM ubuntu:.*|FROM ubuntu:latest AS builder|' server/build/Dockerfile.original > server/build/Dockerfile.clean
 
                   # Team edition configuration
                   if [ "${{ matrix.edition }}" = "team" ]; then
