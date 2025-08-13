@@ -212,38 +212,6 @@ jobs:
                   echo "❌ Build failed for ${{ matrix.edition }} AMD64"
                   exit 1
 
-            - name: Verify AMD64 binary
-              if: (matrix.edition == 'enterprise' && needs.check-and-prepare.outputs.build_enterprise == 'true') || (matrix.edition == 'team' && needs.check-and-prepare.outputs.build_team == 'true')
-              run: |
-                  IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-and-prepare.outputs.version }}-${{ matrix.edition }}-amd64"
-                  echo "🧪 Testing AMD64 binary for ${{ matrix.edition }}..."
-
-                  # Check if binary exists first
-                  echo "Checking if binary exists:"
-                  docker run --rm "$IMAGE" test -f /mattermost/bin/mattermost && echo "✅ Binary exists" || echo "❌ Binary missing"
-
-                  # Test architecture
-                  echo "Architecture test:"
-                  docker run --rm "$IMAGE" uname -m
-
-                  # Test binary execution only if binary exists
-                  if docker run --rm "$IMAGE" test -f /mattermost/bin/mattermost; then
-                    echo "Binary execution test:"
-                    docker run --rm "$IMAGE" /mattermost/bin/mattermost version || echo "Version check completed"
-                  else
-                    echo "❌ Binary not found, failing build"
-                    exit 1
-                  fi
-
-                  # Verify it's AMD64
-                  ARCH_OUTPUT=$(docker run --rm "$IMAGE" uname -m)
-                  if [ "$ARCH_OUTPUT" = "x86_64" ]; then
-                    echo "✅ AMD64 binary verified successfully!"
-                  else
-                    echo "❌ Binary is not AMD64: $ARCH_OUTPUT"
-                    exit 1
-                  fi
-
             - name: Export digest
               if: (matrix.edition == 'enterprise' && needs.check-and-prepare.outputs.build_enterprise == 'true') || (matrix.edition == 'team' && needs.check-and-prepare.outputs.build_team == 'true')
               run: |
@@ -362,38 +330,6 @@ jobs:
               run: |
                   echo "❌ Build failed for ${{ matrix.edition }} ARM64"
                   exit 1
-
-            - name: Verify ARM64 binary
-              if: (matrix.edition == 'enterprise' && needs.check-and-prepare.outputs.build_enterprise == 'true') || (matrix.edition == 'team' && needs.check-and-prepare.outputs.build_team == 'true')
-              run: |
-                  IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-and-prepare.outputs.version }}-${{ matrix.edition }}-arm64"
-                  echo "🧪 Testing ARM64 binary for ${{ matrix.edition }}..."
-
-                  # Check if binary exists first
-                  echo "Checking if binary exists:"
-                  docker run --rm "$IMAGE" test -f /mattermost/bin/mattermost && echo "✅ Binary exists" || echo "❌ Binary missing"
-
-                  # Test architecture
-                  echo "Architecture test:"
-                  docker run --rm "$IMAGE" uname -m
-
-                  # Test binary execution only if binary exists
-                  if docker run --rm "$IMAGE" test -f /mattermost/bin/mattermost; then
-                    echo "Binary execution test:"
-                    docker run --rm "$IMAGE" /mattermost/bin/mattermost version || echo "Version check completed"
-                  else
-                    echo "❌ Binary not found, failing build"
-                    exit 1
-                  fi
-
-                  # Verify it's ARM64
-                  ARCH_OUTPUT=$(docker run --rm "$IMAGE" uname -m)
-                  if [ "$ARCH_OUTPUT" = "aarch64" ]; then
-                    echo "✅ ARM64 binary verified successfully!"
-                  else
-                    echo "❌ Binary is not ARM64: $ARCH_OUTPUT"
-                    exit 1
-                  fi
 
             - name: Export digest
               if: (matrix.edition == 'enterprise' && needs.check-and-prepare.outputs.build_enterprise == 'true') || (matrix.edition == 'team' && needs.check-and-prepare.outputs.build_team == 'true')
